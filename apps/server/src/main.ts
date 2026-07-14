@@ -15,10 +15,12 @@ async function bootstrap() {
   }
   app.useStaticAssets(uploadsDir, { prefix: '/uploads' });
 
-  const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
+  const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:5174')
+    .split(',')
+    .map((s) => s.trim());
 
   app.enableCors({
-    origin: corsOrigin,
+    origin: corsOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     credentials: true,
   });

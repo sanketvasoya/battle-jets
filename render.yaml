@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: battle-jets-server
+    runtime: docker
+    dockerfilePath: apps/server/Dockerfile
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+    healthCheckPath: /admin/players
+    autoDeploy: true
