@@ -1,0 +1,22 @@
+{
+  "name": "battle-jets",
+  "private": true,
+  "scripts": {
+    "dev:game": "pnpm --filter @battle-jets/game-web dev",
+    "dev:admin": "pnpm --filter @battle-jets/admin-panel dev",
+    "dev:server": "pnpm --filter @battle-jets/server start:dev",
+    "dev": "concurrently \"pnpm dev:server\" \"pnpm dev:game\" \"pnpm dev:admin\"",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "db:generate": "pnpm --filter @battle-jets/server prisma:generate",
+    "db:push": "pnpm --filter @battle-jets/server prisma:push",
+    "db:seed": "pnpm --filter @battle-jets/server prisma:seed"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  },
+  "prisma": {
+    "schema": "database/schema.prisma"
+  }
+}

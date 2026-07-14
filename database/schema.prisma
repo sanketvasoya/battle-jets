@@ -1,0 +1,342 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// EXISTING MODELS (Phase 1)
+// ============================================================
+
+model Player {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  avatar    String   @default("commander_alpha")
+  level     Int      @default(1)
+  coins     Int      @default(0)
+  wins      Int      @default(0)
+  losses    Int      @default(0)
+  xp        Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  matches Match[]
+
+  @@map("players")
+}
+
+model Weapon {
+  id              String @id
+  name            String
+  damage          Int
+  fireRate        Float
+  range           Float
+  spread          Float
+  pellets         Int    @default(1)
+  explosionRadius Int    @default(0) @map("explosion_radius")
+  projectileSpeed Int    @default(600) @map("projectile_speed")
+  image           String @default("")
+  sound           String @default("")
+
+  skins        WeaponSkin[]
+  ammo         Int    @default(30)
+  reloadTime   Float  @default(2.0)
+  damageType   String @default("bullet")
+  knockback    Float  @default(0)
+  isPublished  Boolean @default(true) @map("is_published")
+
+  @@map("weapons")
+}
+
+model Map {
+  id        String   @id @default(cuid())
+  name      String
+  width     Int      @default(3000)
+  height    Int      @default(1600)
+  json      Json
+  image     String   @default("")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  rooms Room[]
+
+  @@map("maps")
+}
+
+model Room {
+  id         String   @id @default(cuid())
+  code       String   @unique
+  hostId     String   @map("host_id")
+  maxPlayers Int      @default(8) @map("max_players")
+  status     String   @default("waiting")
+  mode       String   @default("deathmatch")
+  isPublic   Boolean  @default(true) @map("is_public")
+  mapId      String   @map("map_id")
+  map        Map      @relation(fields: [mapId], references: [id])
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  matches Match[]
+
+  @@map("rooms")
+}
+
+model Match {
+  id        String   @id @default(cuid())
+  roomId    String   @map("room_id")
+  room      Room     @relation(fields: [roomId], references: [id])
+  winnerId  String?  @map("winner_id")
+  winner    Player?  @relation(fields: [winnerId], references: [id])
+  kills     Int      @default(0)
+  duration  Int      @default(0)
+  mode      String   @default("deathmatch")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("matches")
+}
+
+// ============================================================
+// PHASE 2: CHARACTER SYSTEM
+// ============================================================
+
+model Character {
+  id          String   @id @default(cuid())
+  name        String
+  description String   @default("")
+  thumbnail   String   @default("")
+  baseHealth  Int      @default(100) @map("base_health")
+  speed       Float    @default(200)
+  isPublished Boolean  @default(true) @map("is_published")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  parts CharacterPart[]
+
+  @@map("characters")
+}
+
+model CharacterPart {
+  id          String   @id @default(cuid())
+  characterId String   @map("character_id")
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  slot        String
+  name        String
+  assetPath   String   @default("") @map("asset_path")
+  offsetX     Float    @default(0) @map("offset_x")
+  offsetY     Float    @default(0) @map("offset_y")
+  scale       Float    @default(1)
+  rotation    Float    @default(0)
+  color       String   @default("#FFFFFF")
+  zIndex      Int      @default(0) @map("z_index")
+
+  @@map("character_parts")
+}
+
+// ============================================================
+// PHASE 2: WEAPON SKINS
+// ============================================================
+
+model WeaponSkin {
+  id         String   @id @default(cuid())
+  weaponId   String   @map("weapon_id")
+  weapon     Weapon   @relation(fields: [weaponId], references: [id], onDelete: Cascade)
+  name       String
+  assetPath  String   @default("") @map("asset_path")
+  rarity     String   @default("common")
+  isDefault  Boolean  @default(false) @map("is_default")
+  isPublished Boolean @default(true) @map("is_published")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("weapon_skins")
+}
+
+// ============================================================
+// PHASE 2: CROSSHAIRS
+// ============================================================
+
+model Crosshair {
+  id         String   @id @default(cuid())
+  name       String
+  style      String   @default("cross")
+  color      String   @default("#FFFFFF")
+  size       Float    @default(20)
+  thickness  Float    @default(2)
+  gap        Float    @default(4)
+  dot        Boolean  @default(false)
+  assetPath  String   @default("") @map("asset_path")
+  isDefault  Boolean  @default(false) @map("is_default")
+  isPublished Boolean @default(true) @map("is_published")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("crosshairs")
+}
+
+// ============================================================
+// PHASE 2: JETPACKS
+// ============================================================
+
+model Jetpack {
+  id            String   @id @default(cuid())
+  name          String
+  description   String   @default("")
+  fuel          Float    @default(100)
+  thrust        Float    @default(300)
+  rechargeRate  Float    @default(20) @map("recharge_rate")
+  burnRate      Float    @default(30) @map("burn_rate")
+  assetPath     String   @default("") @map("asset_path")
+  particleColor String   @default("#FF6B00") @map("particle_color")
+  trailLength   Int      @default(10) @map("trail_length")
+  isDefault     Boolean  @default(false) @map("is_default")
+  isPublished   Boolean  @default(true) @map("is_published")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("jetpacks")
+}
+
+// ============================================================
+// PHASE 2: POWER-UPS
+// ============================================================
+
+model PowerUp {
+  id          String   @id @default(cuid())
+  name        String
+  description String   @default("")
+  type        String
+  duration    Float    @default(10)
+  magnitude   Float    @default(1.5)
+  effect      String   @default("")
+  assetPath   String   @default("") @map("asset_path")
+  color       String   @default("#22C55E")
+  spawnWeight Float    @default(1) @map("spawn_weight")
+  isPublished Boolean  @default(true) @map("is_published")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("power_ups")
+}
+
+// ============================================================
+// PHASE 2: GAME MODE CONFIGURATION
+// ============================================================
+
+model GameModeConfig {
+  id            String   @id @default(cuid())
+  name          String
+  description   String   @default("")
+  timer         Int      @default(600)
+  maxPlayers    Int      @default(8) @map("max_players")
+  minPlayers    Int      @default(2) @map("min_players")
+  scoringType   String   @default("kills") @map("scoring_type")
+  rules         Json
+  isPublished   Boolean  @default(true) @map("is_published")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("game_mode_configs")
+}
+
+// ============================================================
+// PHASE 2: THEMES
+// ============================================================
+
+model Theme {
+  id          String   @id @default(cuid())
+  name        String
+  description String   @default("")
+  colors      Json
+  isDefault   Boolean  @default(false) @map("is_default")
+  isPublished Boolean  @default(true) @map("is_published")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("themes")
+}
+
+// ============================================================
+// PHASE 2: ASSET MANAGEMENT
+// ============================================================
+
+model Asset {
+  id        String   @id @default(cuid())
+  name      String
+  type      String
+  path      String
+  mimeType  String   @default("") @map("mime_type")
+  size      Int      @default(0)
+  width     Int?
+  height    Int?
+  metadata  Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("assets")
+}
+
+// ============================================================
+// PHASE 2: SCRIPTING ENGINE
+// ============================================================
+
+model Script {
+  id         String   @id @default(cuid())
+  name       String
+  type       String
+  language   String   @default("javascript")
+  code       String   @default("")
+  version    Int      @default(1)
+  isPublished Boolean @default(true) @map("is_published")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("scripts")
+}
+
+// ============================================================
+// PHASE 2: VERSION HISTORY
+// ============================================================
+
+model ContentVersion {
+  id         String   @id @default(cuid())
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  entityName String   @default("") @map("entity_name")
+  version    Int      @default(1)
+  data       Json
+  changelog  String   @default("")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("content_versions")
+  @@unique([entityType, entityId, version])
+}
+
+// ============================================================
+// PHASE 2: GLOBAL SETTINGS
+// ============================================================
+
+model GameSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("game_settings")
+}
+
+// ============================================================
+// PHASE 2: ADMIN AUDIT LOG
+// ============================================================
+
+model AdminLog {
+  id         String   @id @default(cuid())
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  entityName String   @default("") @map("entity_name")
+  data       Json
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("admin_logs")
+}

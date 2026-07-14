@@ -1,0 +1,522 @@
+import React, { useRef, useEffect, useCallback } from 'react';
+import { Application, Graphics, Text, TextStyle, Container } from 'pixi.js';
+import { useGameStore } from '../../stores/useGameStore';
+import { useAuthStore } from '../../stores/useAuthStore';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { soundManager } from '../../utils/SoundManager';
+import { GAME_CONSTANTS, WEAPONS, WeaponType } from '@battle-jets/shared';
+
+const COLORS = {
+  primary: 0x2F80ED,
+  secondary: 0xFF6B00,
+  background: 0x0F172A,
+  surface: 0x1E293B,
+  success: 0x22C55E,
+  danger: 0xEF4444,
+  text: 0xF8FAFC,
+  textMuted: 0x94A3B8,
+  border: 0x334155,
+};
+
+interface ParticleData {
+  x: number; y: number;
+  vx: number; vy: number;
+  life: number; maxLife: number;
+  color: number; size: number;
+  type: 'spark' | 'explosion' | 'jetpack' | 'bullet';
+}
+
+interface InputState {
+  left: boolean; right: boolean; up: boolean; down: boolean;
+  shoot: boolean; grenade: boolean; jetpack: boolean;
+  weapon: WeaponType;
+  mouseX: number; mouseY: number;
+  aimAngle: number;
+}
+
+interface GameCanvasProps {
+  onMatchEnd: () => void;
+}
+
+export const GameCanvas: React.FC<GameCanvasProps> = ({ onMatchEnd }) => {
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const appRef = useRef<Application | null>(null);
+  const gfxRef = useRef<Graphics | null>(null);
+  const inputRef = useRef<InputState>({
+    left: false, right: false, up: false, down: false,
+    shoot: false, grenade: false, jetpack: false,
+    weapon: 'assault_rifle',
+    mouseX: 0, mouseY: 0, aimAngle: 0,
+  });
+  const tickRef = useRef(0);
+  const lastShootTime = useRef(0);
+  const particlesRef = useRef<ParticleData[]>([]);
+  const prevJetpackRef = useRef(false);
+
+  // Use refs for data accessed in the render loop to avoid re-registering the ticker
+  const gameStateRef = useRef<any>(null);
+  const playerIdRef = useRef<string | null>(null);
+  const qualityRef = useRef<'low' | 'medium' | 'high'>('high');
+
+  const { gameState, initGameListeners, removeGameListeners, sendInput, sendWeaponSwitch, sendThrowGrenade, matchResults } = useGameStore();
+  const { player } = useAuthStore();
+  const { volumeSFX, graphicsQuality } = useSettingsStore();
+
+  // Sync refs
+  useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
+  useEffect(() => { playerIdRef.current = player?.id ?? null; }, [player]);
+  useEffect(() => { qualityRef.current = graphicsQuality; }, [graphicsQuality]);
+
+  // ------- Sound helper -------
+  const playShootSound = useCallback((weapon: WeaponType) => {
+    if (weapon === 'assault_rifle') soundManager.playAR();
+    else if (weapon === 'shotgun') soundManager.playShotgun();
+    else if (weapon === 'sniper') soundManager.playSniper();
+    else if (weapon === 'rocket_launcher') soundManager.playRocket();
+  }, []);
+
+  // ------- Spawn particles -------
+  const spawnParticles = useCallback((x: number, y: number, type: ParticleData['type'], count: number = 8) => {
+    const newParticles: ParticleData[] = [];
+    for (let i = 0; i < count; i++) {
+      const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
+      const speed = type === 'explosion' ? Math.random() * 120 + 60 :
+                    type === 'jetpack' ? Math.random() * 60 + 20 :
+                    Math.random() * 80 + 30;
+      newParticles.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: type === 'jetpack' ? Math.abs(Math.sin(angle)) * speed : Math.sin(angle) * speed,
+        life: 1.0,
+        maxLife: type === 'explosion' ? 0.6 : type === 'jetpack' ? 0.3 : 0.4,
+        color: type === 'explosion' ? COLORS.secondary :
+               type === 'jetpack' ? 0x88CCFF :
+               type === 'bullet' ? 0xFFFF88 : COLORS.primary,
+        size: type === 'explosion' ? 4 : 2,
+        type,
+      });
+    }
+    particlesRef.current.push(...newParticles);
+    if (particlesRef.current.length > 300) {
+      particlesRef.current = particlesRef.current.slice(-300);
+    }
+  }, []);
+
+  // ------- Fallback map data (static) -------
+  const fallbackPlatforms = useRef([
+    { x: 100, y: 1400, width: 900, height: 40, type: 'solid' },
+    { x: 1200, y: 1500, width: 600, height: 40, type: 'solid' },
+    { x: 2000, y: 1400, width: 900, height: 40, type: 'solid' },
+    { x: 300, y: 1000, width: 400, height: 30, type: 'one_way' },
+    { x: 2300, y: 1000, width: 400, height: 30, type: 'one_way' },
+    { x: 1100, y: 1100, width: 800, height: 30, type: 'solid' },
+    { x: 1300, y: 800, width: 400, height: 30, type: 'one_way' },
+    { x: 1400, y: 500, width: 200, height: 30, type: 'one_way' },
+  ]);
+  const fallbackBoxes = useRef([
+    { x: 450, y: 1340, width: 60, height: 60 },
+    { x: 510, y: 1340, width: 60, height: 60 },
+    { x: 2450, y: 1340, width: 60, height: 60 },
+  ]);
+  const jumpPads = useRef([{ x: 150, y: 1390 }, { x: 2850, y: 1390 }]);
+
+  // ------- Main render loop (NO dependencies — reads from refs) -------
+  const renderFrame = useCallback(() => {
+    const app = appRef.current;
+    const g = gfxRef.current;
+    const gs = gameStateRef.current;
+    if (!app || !g || !gs || !gs.players) return;
+
+    const dt = app.ticker.deltaMS / 1000;
+    const playerId = playerIdRef.current;
+    const quality = qualityRef.current;
+    const screenW = app.screen.width;
+    const screenH = app.screen.height;
+
+    // Camera
+    let camX = GAME_CONSTANTS.MAP_WIDTH / 2;
+    let camY = GAME_CONSTANTS.MAP_HEIGHT / 2;
+    const localPlayer = playerId ? gs.players.get(playerId) : null;
+    if (localPlayer) {
+      camX = localPlayer.position.x;
+      camY = localPlayer.position.y;
+    }
+    const offsetX = screenW / 2 - camX;
+    const offsetY = screenH / 2 - camY;
+
+    // Clear once, redraw everything
+    g.clear();
+
+    // ===== BACKGROUND =====
+    g.rect(0, 0, screenW, screenH).fill({ color: COLORS.background });
+
+    const starCount = quality === 'low' ? 30 : quality === 'medium' ? 60 : 100;
+    for (let i = 0; i < starCount; i++) {
+      const sx = ((i * 137.5 + camX * 0.05) % screenW + screenW) % screenW;
+      const sy = ((i * 89.3 + camY * 0.05) % screenH + screenH) % screenH;
+      const sz = (i % 3) + 1;
+      g.circle(sx, sy, sz * 0.5).fill({ color: 0xffffff, alpha: (i % 5 === 0) ? 0.7 : 0.3 });
+    }
+
+    // Nebula
+    g.circle(screenW * 0.3, screenH * 0.4, 180).fill({ color: 0x1a2456, alpha: 0.5 });
+    g.circle(screenW * 0.7, screenH * 0.6, 150).fill({ color: 0x1e3a2e, alpha: 0.4 });
+
+    if (quality !== 'low') {
+      g.rect(offsetX, offsetY, GAME_CONSTANTS.MAP_WIDTH, GAME_CONSTANTS.MAP_HEIGHT)
+        .fill({ color: 0x0a1120, alpha: 0.3 });
+    }
+
+    // ===== PLATFORMS =====
+    for (const plat of fallbackPlatforms.current) {
+      const px = plat.x + offsetX;
+      const py = plat.y + offsetY;
+      if (px + plat.width < -50 || px > screenW + 50) continue;
+      if (plat.type === 'solid') {
+        g.rect(px, py, plat.width, plat.height).fill({ color: 0x334155 });
+        g.rect(px, py, plat.width, 3).fill({ color: 0x4a6080 });
+        g.rect(px, py + plat.height - 2, plat.width, 2).fill({ color: 0x1a2030 });
+        if (quality === 'high') {
+          for (let tx = px + 20; tx < px + plat.width - 20; tx += 60) {
+            g.rect(tx, py + 8, 20, 3).fill({ color: 0x2F80ED, alpha: 0.4 });
+          }
+        }
+      } else {
+        g.rect(px, py, plat.width, plat.height).fill({ color: 0x2F80ED, alpha: 0.3 });
+        g.rect(px, py, plat.width, 3).fill({ color: 0x2F80ED, alpha: 0.9 });
+      }
+    }
+
+    // Boxes
+    for (const box of fallbackBoxes.current) {
+      const bx = box.x + offsetX;
+      const by = box.y + offsetY;
+      if (bx + box.width < -50 || bx > screenW + 50) continue;
+      g.rect(bx, by, box.width, box.height).fill({ color: 0x59372b });
+      g.rect(bx, by, box.width, 4).fill({ color: 0x7a4a36 });
+      g.rect(bx, by, 4, box.height).fill({ color: 0x7a4a36 });
+      g.rect(bx + box.width - 4, by, 4, box.height).fill({ color: 0x3d2215 });
+      g.moveTo(bx + 8, by + 8).lineTo(bx + box.width - 8, by + box.height - 8).stroke({ color: 0x7a4a36, width: 2 });
+      g.moveTo(bx + box.width - 8, by + 8).lineTo(bx + 8, by + box.height - 8).stroke({ color: 0x7a4a36, width: 2 });
+    }
+
+    // Jump Pads
+    const now = Date.now();
+    for (const pad of jumpPads.current) {
+      const px = pad.x + offsetX;
+      const py = pad.y + offsetY;
+      if (Math.abs(px - screenW / 2) > screenW) continue;
+      const t = (now / 300) % (Math.PI * 2);
+      const alpha = (Math.sin(t) + 1) / 2;
+      g.ellipse(px, py + 5, 20, 8).fill({ color: 0x22C55E, alpha: 0.4 + alpha * 0.4 });
+      g.moveTo(px, py - 5 - alpha * 8).lineTo(px - 7, py + 5).lineTo(px + 7, py + 5).closePath()
+        .fill({ color: 0x22C55E, alpha: 0.7 + alpha * 0.3 });
+    }
+
+    // ===== PROJECTILES =====
+    gs.projectiles?.forEach((proj: any) => {
+      const sx = proj.position.x + offsetX;
+      const sy = proj.position.y + offsetY;
+      if (sx < -10 || sx > screenW + 10 || sy < -10 || sy > screenH + 10) return;
+
+      if (proj.weapon === 'rocket_launcher') {
+        g.circle(sx, sy, 5).fill({ color: 0xFF6B00 });
+        g.circle(sx, sy, 9).fill({ color: 0xFF6B00, alpha: 0.3 });
+        const angle = Math.atan2(proj.velocity.y, proj.velocity.x);
+        for (let t = 1; t <= 4; t++) {
+          const tx = sx - Math.cos(angle) * t * 8;
+          const ty = sy - Math.sin(angle) * t * 8;
+          g.circle(tx, ty, 4 - t * 0.8).fill({ color: 0xFF8833, alpha: (4 - t) * 0.25 });
+        }
+      } else if (proj.weapon === 'sniper') {
+        const angle = Math.atan2(proj.velocity.y, proj.velocity.x);
+        g.moveTo(sx, sy).lineTo(sx - Math.cos(angle) * 30, sy - Math.sin(angle) * 30)
+          .stroke({ color: 0x00FFFF, width: 2.5, alpha: 0.9 });
+        g.circle(sx, sy, 3).fill({ color: 0xCCFFFF });
+      } else if (proj.weapon === 'shotgun') {
+        g.circle(sx, sy, 2.5).fill({ color: 0xFFEE44 });
+      } else {
+        const angle = Math.atan2(proj.velocity.y, proj.velocity.x);
+        g.moveTo(sx, sy).lineTo(sx - Math.cos(angle) * 12, sy - Math.sin(angle) * 12)
+          .stroke({ color: 0xFFFFAA, width: 2 });
+        g.circle(sx, sy, 2).fill({ color: 0xFFFFFF });
+      }
+    });
+
+    // ===== GRENADES =====
+    gs.grenades?.forEach((gren: any) => {
+      const gx = gren.position.x + offsetX;
+      const gy = gren.position.y + offsetY;
+      if (gx < -10 || gx > screenW + 10) return;
+      const urgency = Math.max(0, 1 - gren.fuseTimer / GAME_CONSTANTS.GRENADE_FUSE_TIME);
+      const gColor = urgency > 0.6 ? COLORS.danger : COLORS.secondary;
+      g.circle(gx, gy, 6).fill({ color: gColor });
+      g.circle(gx, gy, 10).fill({ color: gColor, alpha: 0.3 });
+    });
+
+    // ===== PLAYERS =====
+    gs.players.forEach((p: any, pid: string) => {
+      const sx = p.position.x + offsetX;
+      const sy = p.position.y + offsetY;
+
+      if (sx < -60 || sx > screenW + 60 || sy < -80 || sy > screenH + 80) return;
+
+      const isLocal = pid === playerId;
+      const hw = GAME_CONSTANTS.PLAYER_WIDTH / 2;
+      const hh = GAME_CONSTANTS.PLAYER_HEIGHT / 2;
+
+      if (!p.isAlive) {
+        g.circle(sx, sy, 12).fill({ color: COLORS.danger, alpha: 0.25 });
+        // Draw skull emoji via Graphics text-free approach: just use a circle with X
+        g.moveTo(sx - 5, sy - 5).lineTo(sx + 5, sy + 5).stroke({ color: COLORS.danger, width: 2 });
+        g.moveTo(sx + 5, sy - 5).lineTo(sx - 5, sy + 5).stroke({ color: COLORS.danger, width: 2 });
+        return;
+      }
+
+      // Jetpack particles
+      if (p.jetpackActive) {
+        if (Math.random() < 0.7) {
+          spawnParticles(sx, sy + hh + 4, 'jetpack', 3);
+        }
+      }
+
+      // Shadow
+      g.ellipse(sx, sy + hh + 2, hw, 5).fill({ color: 0x000000, alpha: 0.3 });
+
+      // Body
+      const bodyColor = isLocal ? COLORS.primary : COLORS.danger;
+      const bodyBorderColor = isLocal ? 0x5BAAFF : 0xFF8080;
+      g.roundRect(sx - hw, sy - hh, GAME_CONSTANTS.PLAYER_WIDTH, GAME_CONSTANTS.PLAYER_HEIGHT, 6)
+        .fill({ color: bodyColor, alpha: 0.85 })
+        .stroke({ color: bodyBorderColor, width: 1.5, alpha: 0.8 });
+
+      // Helmet highlight
+      g.roundRect(sx - hw + 3, sy - hh + 3, GAME_CONSTANTS.PLAYER_WIDTH - 6, 14, 4)
+        .fill({ color: 0xffffff, alpha: 0.15 });
+
+      // Visor glow
+      g.roundRect(sx - 6, sy - hh + 8, 12, 8, 2).fill({ color: 0x00CCFF, alpha: 0.9 });
+      g.roundRect(sx - 6, sy - hh + 8, 12, 8, 2).stroke({ color: 0x88EEFF, width: 1 });
+
+      // Jetpack on back
+      const facingRight = Math.cos(p.aimAngle) >= 0;
+      const jpX = facingRight ? sx - hw - 5 : sx + hw + 5;
+      g.roundRect(jpX - 5, sy - 10, 10, 20, 3).fill({ color: 0x334155 });
+      if (p.jetpackActive) {
+        g.circle(jpX, sy + 12, 5).fill({ color: 0xFF6B00, alpha: 0.8 });
+        g.circle(jpX, sy + 12, 9).fill({ color: 0xFF8833, alpha: 0.3 });
+      }
+
+      // Weapon indicator
+      const aimX = Math.cos(p.aimAngle) * 20;
+      const aimY = Math.sin(p.aimAngle) * 20;
+      const weaponColor = ({ assault_rifle: 0xAAAAAA, shotgun: 0xBB8833, sniper: 0x44AAFF, rocket_launcher: 0xFF6600 } as any)[p.weapon];
+      g.roundRect(sx + aimX * 0.5 - 2, sy + aimY * 0.5 - 2, aimX, 4, 2)
+        .fill({ color: weaponColor || 0xAAAAAA });
+
+      // Health bar
+      const hpPct = p.health / p.maxHealth;
+      const barW = 36;
+      const barH = 4;
+      const barX = sx - barW / 2;
+      const barY = sy - hh - 12;
+      g.roundRect(barX, barY, barW, barH, 2).fill({ color: 0x1a1a1a });
+      const hpColor = hpPct > 0.5 ? COLORS.success : hpPct > 0.25 ? COLORS.secondary : COLORS.danger;
+      g.roundRect(barX, barY, barW * hpPct, barH, 2).fill({ color: hpColor });
+
+      // Name tag (draw as colored rectangle indicator instead of Text for perf)
+      if (quality !== 'low' || isLocal) {
+        const nameW = Math.min(p.username.length * 6 + 8, 80);
+        const nameColor = isLocal ? 0x88CCFF : 0xFF9999;
+        g.roundRect(sx - nameW / 2, barY - 14, nameW, 10, 2)
+          .fill({ color: 0x000000, alpha: 0.5 });
+        g.roundRect(sx - nameW / 2, barY - 14, nameW, 10, 2)
+          .stroke({ color: nameColor, width: 1, alpha: 0.6 });
+      }
+
+      // Aim line (only local)
+      if (isLocal && quality !== 'low') {
+        const aimLen = 50;
+        g.moveTo(sx, sy).lineTo(sx + Math.cos(p.aimAngle) * aimLen, sy + Math.sin(p.aimAngle) * aimLen)
+          .stroke({ color: 0xffffff, width: 1, alpha: 0.15 });
+        g.circle(sx + Math.cos(p.aimAngle) * aimLen, sy + Math.sin(p.aimAngle) * aimLen, 2)
+          .fill({ color: 0xffffff, alpha: 0.4 });
+      }
+    });
+
+    // ===== PARTICLES =====
+    particlesRef.current = particlesRef.current.filter((pt) => {
+      pt.life -= dt / pt.maxLife;
+      if (pt.life <= 0) return false;
+      pt.x += pt.vx * dt;
+      pt.y += pt.vy * dt;
+      if (pt.type === 'explosion' || pt.type === 'spark') {
+        pt.vy += 200 * dt;
+      }
+      const alpha = pt.life;
+      const size = pt.size * pt.life;
+      const px = pt.x + offsetX;
+      const py = pt.y + offsetY;
+      if (px > -10 && px < screenW + 10 && py > -10 && py < screenH + 10) {
+        g.circle(px, py, size).fill({ color: pt.color, alpha });
+      }
+      return true;
+    });
+  }, [spawnParticles]);
+
+  // ===== Keyboard input =====
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const inp = inputRef.current;
+      if (e.code === 'KeyA') inp.left = true;
+      if (e.code === 'KeyD') inp.right = true;
+      if (e.code === 'KeyW') inp.up = true;
+      if (e.code === 'KeyS') inp.down = true;
+      if (e.code === 'Space') { e.preventDefault(); inp.jetpack = true; }
+      if (e.code === 'KeyG') inp.grenade = true;
+      if (e.code === 'Digit1') inp.weapon = 'assault_rifle';
+      if (e.code === 'Digit2') inp.weapon = 'shotgun';
+      if (e.code === 'Digit3') inp.weapon = 'sniper';
+      if (e.code === 'Digit4') inp.weapon = 'rocket_launcher';
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      const inp = inputRef.current;
+      if (e.code === 'KeyA') inp.left = false;
+      if (e.code === 'KeyD') inp.right = false;
+      if (e.code === 'KeyW') inp.up = false;
+      if (e.code === 'KeyS') inp.down = false;
+      if (e.code === 'Space') inp.jetpack = false;
+      if (e.code === 'KeyG') inp.grenade = false;
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
+
+  // ===== Mouse input =====
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      inputRef.current.mouseX = e.clientX;
+      inputRef.current.mouseY = e.clientY;
+      const cx = window.innerWidth / 2;
+      const cy = window.innerHeight / 2;
+      inputRef.current.aimAngle = Math.atan2(e.clientY - cy, e.clientX - cx);
+    };
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button === 0) inputRef.current.shoot = true;
+    };
+    const onMouseUp = (e: MouseEvent) => {
+      if (e.button === 0) inputRef.current.shoot = false;
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
+
+  // ===== Input sending loop (60hz) =====
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const inp = inputRef.current;
+      tickRef.current++;
+      const now = Date.now();
+      const weaponData = WEAPONS[inp.weapon];
+      const firePeriod = weaponData ? 1000 / weaponData.fireRate : 200;
+
+      let shouldShoot = inp.shoot && (now - lastShootTime.current >= firePeriod);
+      if (shouldShoot) {
+        lastShootTime.current = now;
+        playShootSound(inp.weapon);
+      }
+
+      // Jetpack sound
+      if (inp.jetpack && !prevJetpackRef.current) soundManager.startJetpack();
+      if (!inp.jetpack && prevJetpackRef.current) soundManager.stopJetpack();
+      prevJetpackRef.current = inp.jetpack;
+
+      const moveX = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
+      const moveY = (inp.up ? 1 : 0) - (inp.down ? 1 : 0);
+
+      sendInput({
+        tick: tickRef.current,
+        moveX,
+        moveY,
+        aimX: Math.cos(inp.aimAngle),
+        aimY: Math.sin(inp.aimAngle),
+        shoot: shouldShoot,
+        grenade: inp.grenade,
+        jetpack: inp.jetpack,
+        switchWeapon: null,
+      });
+
+      // Reset one-shot inputs
+      inp.grenade = false;
+    }, 1000 / 60);
+
+    return () => clearInterval(interval);
+  }, [sendInput, playShootSound]);
+
+  // ===== PixiJS setup (runs once) =====
+  useEffect(() => {
+    if (!canvasRef.current || appRef.current) return;
+
+    const initPixi = async () => {
+      const app = new Application();
+      await app.init({
+        resizeTo: window,
+        backgroundColor: COLORS.background,
+        antialias: graphicsQuality === 'high',
+        powerPreference: 'high-performance',
+      });
+
+      canvasRef.current!.appendChild(app.canvas);
+      appRef.current = app;
+
+      // Create ONE persistent Graphics object
+      const g = new Graphics();
+      app.stage.addChild(g);
+      gfxRef.current = g;
+
+      // Register ticker ONCE — it reads from refs
+      app.ticker.add(renderFrame);
+    };
+
+    initPixi();
+
+    return () => {
+      soundManager.stopJetpack();
+      if (appRef.current) {
+        appRef.current.destroy(true, { children: true });
+        appRef.current = null;
+        gfxRef.current = null;
+      }
+    };
+  }, []);
+
+  // ===== Listen to game events =====
+  useEffect(() => {
+    initGameListeners();
+    return () => removeGameListeners();
+  }, [initGameListeners, removeGameListeners]);
+
+  // Navigate to results when match ends
+  useEffect(() => {
+    if (matchResults) {
+      soundManager.stopJetpack();
+      onMatchEnd();
+    }
+  }, [matchResults, onMatchEnd]);
+
+  return (
+    <div ref={canvasRef} className="fixed inset-0 w-full h-full overflow-hidden touch-none" />
+  );
+};
+
+export default GameCanvas;
