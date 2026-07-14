@@ -15,12 +15,13 @@ COPY packages/assets/package.json packages/assets/
 COPY packages/networking/package.json packages/networking/
 COPY packages/ui/package.json packages/ui/
 COPY apps/server/package.json apps/server/
+ENV PNPM_NODE_LINKER=hoisted
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY packages/shared/src/ packages/shared/src/
 COPY packages/physics/src/ packages/physics/src/
 COPY packages/game-engine/src/ packages/game-engine/src/
 COPY apps/server/ apps/server/
-RUN cd apps/server && npx prisma generate
+RUN cd apps/server && PRISMA_GENERATE_SKIP_AUTOINSTALL=1 npx prisma generate
 RUN pnpm --filter @battle-jets/shared build
 RUN pnpm --filter @battle-jets/physics build
 RUN pnpm --filter @battle-jets/game-engine build
