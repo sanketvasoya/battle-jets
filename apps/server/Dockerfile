@@ -20,7 +20,7 @@ COPY packages/shared/src/ packages/shared/src/
 COPY packages/physics/src/ packages/physics/src/
 COPY packages/game-engine/src/ packages/game-engine/src/
 COPY apps/server/ apps/server/
-RUN ./node_modules/.bin/prisma generate --schema=./database/schema.prisma
+RUN pnpm exec prisma generate --schema=./database/schema.prisma
 RUN pnpm --filter @battle-jets/shared build
 RUN pnpm --filter @battle-jets/physics build
 RUN pnpm --filter @battle-jets/game-engine build
