@@ -4,6 +4,7 @@ RUN corepack enable && corepack prepare pnpm@11 --activate
 FROM base AS builder
 WORKDIR /app
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
+COPY tsconfig.base.json ./
 COPY database/ ./database/
 COPY packages/shared/package.json packages/shared/
 COPY packages/shared/tsconfig.json packages/shared/
@@ -21,6 +22,7 @@ COPY packages/game-engine/src/ packages/game-engine/src/
 COPY apps/server/ apps/server/
 ENV PNPM_NODE_LINKER=hoisted
 RUN pnpm install --no-frozen-lockfile
+RUN cd apps/server && npx prisma generate
 RUN pnpm --filter @battle-jets/shared build
 RUN pnpm --filter @battle-jets/physics build
 RUN pnpm --filter @battle-jets/game-engine build
