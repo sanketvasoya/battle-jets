@@ -21,7 +21,7 @@ COPY packages/shared/src/ packages/shared/src/
 COPY packages/physics/src/ packages/physics/src/
 COPY packages/game-engine/src/ packages/game-engine/src/
 COPY apps/server/ apps/server/
-RUN cd apps/server && PRISMA_GENERATE_SKIP_AUTOINSTALL=1 npx prisma generate
+RUN PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm --filter @battle-jets/server exec prisma generate
 RUN pnpm --filter @battle-jets/shared build
 RUN pnpm --filter @battle-jets/physics build
 RUN pnpm --filter @battle-jets/game-engine build
