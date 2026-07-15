@@ -433,6 +433,35 @@ export class PhysicsWorld {
     };
   }
 
+  public removeBox(boxId: string) {
+    const body = this.boxes.get(boxId);
+    if (body) {
+      this.world.destroyBody(body);
+      this.boxes.delete(boxId);
+    }
+  }
+
+  public getBoxHealth(boxId: string): number | null {
+    const body = this.boxes.get(boxId);
+    if (!body) return null;
+    const userData = body.getUserData() as any;
+    return userData?.health ?? null;
+  }
+
+  public damageBox(boxId: string, damage: number): boolean {
+    const body = this.boxes.get(boxId);
+    if (!body) return false;
+    const userData = body.getUserData() as any;
+    if (!userData) return false;
+    userData.health -= damage;
+    if (userData.health <= 0) {
+      this.world.destroyBody(body);
+      this.boxes.delete(boxId);
+      return true;
+    }
+    return false;
+  }
+
   public getMovingPlatformsState(): { id: string; position: Vector2; velocity: Vector2 }[] {
     return this.movingPlatformsList.map((mp) => {
       const pos = mp.body.getPosition();

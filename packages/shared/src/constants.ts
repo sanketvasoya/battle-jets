@@ -1,4 +1,4 @@
-import type { WeaponData } from './types';
+import type { WeaponData, PowerUpType } from './types';
 
 export const GAME_CONSTANTS = {
   TICK_RATE: 60,
@@ -30,6 +30,15 @@ export const GAME_CONSTANTS = {
   KILL_FEED_DURATION: 5000,
   INTERPOLATION_DELAY: 100,
   INPUT_BUFFER_SIZE: 10,
+
+  KNOCKBACK_BASE: 3.0,
+  KNOCKBACK_SCALE: 0.15,
+
+  POWER_UP_SPAWN_INTERVAL: 15,
+  POWER_UP_MAX_ACTIVE: 5,
+  POWER_UP_PICKUP_RADIUS: 40,
+
+  BOX_DESTRUCTION_PARTICLES: 8,
 } as const;
 
 export const WEAPONS: Record<string, WeaponData> = {
@@ -43,6 +52,10 @@ export const WEAPONS: Record<string, WeaponData> = {
     pellets: 1,
     explosionRadius: 0,
     projectileSpeed: 600,
+    ammo: 30,
+    reloadTime: 2.0,
+    knockback: 3,
+    damageType: 'bullet',
   },
   shotgun: {
     id: 'shotgun',
@@ -54,6 +67,10 @@ export const WEAPONS: Record<string, WeaponData> = {
     pellets: 6,
     explosionRadius: 0,
     projectileSpeed: 500,
+    ammo: 8,
+    reloadTime: 2.5,
+    knockback: 20,
+    damageType: 'bullet',
   },
   sniper: {
     id: 'sniper',
@@ -65,6 +82,10 @@ export const WEAPONS: Record<string, WeaponData> = {
     pellets: 1,
     explosionRadius: 0,
     projectileSpeed: 1200,
+    ammo: 5,
+    reloadTime: 3.0,
+    knockback: 15,
+    damageType: 'bullet',
   },
   rocket_launcher: {
     id: 'rocket_launcher',
@@ -76,7 +97,114 @@ export const WEAPONS: Record<string, WeaponData> = {
     pellets: 1,
     explosionRadius: 80,
     projectileSpeed: 350,
+    ammo: 4,
+    reloadTime: 3.5,
+    knockback: 40,
+    damageType: 'explosive',
   },
+  smg: {
+    id: 'smg',
+    name: 'SMG',
+    damage: 10,
+    fireRate: 14,
+    spread: 0.1,
+    range: 400,
+    pellets: 1,
+    explosionRadius: 0,
+    projectileSpeed: 550,
+    ammo: 35,
+    reloadTime: 1.5,
+    knockback: 2,
+    damageType: 'bullet',
+  },
+  pistol: {
+    id: 'pistol',
+    name: 'Pistol',
+    damage: 20,
+    fireRate: 4,
+    spread: 0.03,
+    range: 600,
+    pellets: 1,
+    explosionRadius: 0,
+    projectileSpeed: 700,
+    ammo: 15,
+    reloadTime: 1.2,
+    knockback: 5,
+    damageType: 'bullet',
+  },
+  energy_rifle: {
+    id: 'energy_rifle',
+    name: 'Energy Rifle',
+    damage: 25,
+    fireRate: 3,
+    spread: 0.02,
+    range: 700,
+    pellets: 1,
+    explosionRadius: 0,
+    projectileSpeed: 900,
+    ammo: 20,
+    reloadTime: 2.5,
+    knockback: 8,
+    damageType: 'energy',
+  },
+  melee: {
+    id: 'melee',
+    name: 'Blade',
+    damage: 55,
+    fireRate: 2,
+    spread: 0,
+    range: 60,
+    pellets: 1,
+    explosionRadius: 0,
+    projectileSpeed: 0,
+    ammo: Infinity,
+    reloadTime: 0,
+    knockback: 30,
+    damageType: 'melee',
+  },
+  grenade_launcher: {
+    id: 'grenade_launcher',
+    name: 'Grenade Launcher',
+    damage: 70,
+    fireRate: 1.2,
+    spread: 0.04,
+    range: 600,
+    pellets: 1,
+    explosionRadius: 70,
+    projectileSpeed: 400,
+    ammo: 6,
+    reloadTime: 3.0,
+    knockback: 25,
+    damageType: 'explosive',
+  },
+  laser: {
+    id: 'laser',
+    name: 'Laser Cannon',
+    damage: 35,
+    fireRate: 2,
+    spread: 0.01,
+    range: 900,
+    pellets: 1,
+    explosionRadius: 0,
+    projectileSpeed: 1500,
+    ammo: 12,
+    reloadTime: 3.0,
+    knockback: 5,
+    damageType: 'energy',
+  },
+};
+
+export const POWER_UP_CONFIG: Record<PowerUpType, {
+  name: string;
+  duration: number;
+  magnitude: number;
+  color: number;
+}> = {
+  health: { name: 'Health Pack', duration: 0, magnitude: 50, color: 0x22C55E },
+  speed: { name: 'Speed Boost', duration: 8, magnitude: 1.5, color: 0x3B82F6 },
+  damage: { name: 'Damage Boost', duration: 10, magnitude: 2.0, color: 0xEF4444 },
+  shield: { name: 'Shield', duration: 8, magnitude: 0.5, color: 0xA855F7 },
+  jetpack_fuel: { name: 'Fuel Pack', duration: 0, magnitude: 50, color: 0xF59E0B },
 };
 
 export const THEME = {

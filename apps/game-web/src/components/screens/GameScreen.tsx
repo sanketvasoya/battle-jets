@@ -13,6 +13,12 @@ const WEAPON_ICONS: Record<WeaponType, string> = {
   shotgun: '💥',
   sniper: '🎯',
   rocket_launcher: '🚀',
+  smg: '⚡',
+  pistol: '🔹',
+  energy_rifle: '💎',
+  melee: '⚔️',
+  grenade_launcher: '💣',
+  laser: '✨',
 };
 
 const WEAPON_LABELS: Record<WeaponType, string> = {
@@ -20,9 +26,15 @@ const WEAPON_LABELS: Record<WeaponType, string> = {
   shotgun: 'SG',
   sniper: 'SNP',
   rocket_launcher: 'RL',
+  smg: 'SMG',
+  pistol: 'PST',
+  energy_rifle: 'ER',
+  melee: 'BLD',
+  grenade_launcher: 'GL',
+  laser: 'LAS',
 };
 
-const WEAPONS: WeaponType[] = ['assault_rifle', 'shotgun', 'sniper', 'rocket_launcher'];
+const WEAPONS: WeaponType[] = ['assault_rifle', 'shotgun', 'sniper', 'rocket_launcher', 'smg', 'pistol', 'energy_rifle', 'grenade_launcher', 'laser', 'melee'];
 
 export const GameScreen: React.FC = () => {
   const navigate = useNavigate();

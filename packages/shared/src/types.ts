@@ -24,6 +24,11 @@ export interface PlayerState {
   jetpackActive: boolean;
   jetpackFuel: number;
   lastInputTick: number;
+  ammo: number;
+  maxAmmo: number;
+  isReloading: boolean;
+  reloadTimer: number;
+  knockbackMultiplier: number;
 }
 
 export interface ProjectileState {
@@ -45,11 +50,42 @@ export interface GrenadeState {
   createdAt: number;
 }
 
+export interface BoxState {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  health: number;
+  maxHealth: number;
+  isDestroyed: boolean;
+}
+
+export interface PowerUpState {
+  id: string;
+  type: PowerUpType;
+  position: Vector2;
+  active: boolean;
+  duration: number;
+  magnitude: number;
+}
+
+export interface MovingPlatformState {
+  id: string;
+  position: Vector2;
+  width: number;
+  height: number;
+}
+
 export interface GameState {
   matchId: MatchId;
   players: Map<PlayerId, PlayerState>;
   projectiles: ProjectileState[];
   grenades: GrenadeState[];
+  boxes: BoxState[];
+  powerUps: PowerUpState[];
+  movingPlatforms: MovingPlatformState[];
+  mapData: MapData | null;
   tick: number;
   startTime: number;
   timeRemaining: number;
@@ -57,7 +93,19 @@ export interface GameState {
   mode: GameMode;
 }
 
-export type WeaponType = 'assault_rifle' | 'shotgun' | 'sniper' | 'rocket_launcher';
+export type WeaponType =
+  | 'assault_rifle'
+  | 'shotgun'
+  | 'sniper'
+  | 'rocket_launcher'
+  | 'smg'
+  | 'pistol'
+  | 'energy_rifle'
+  | 'melee'
+  | 'grenade_launcher'
+  | 'laser';
+
+export type PowerUpType = 'health' | 'speed' | 'damage' | 'shield' | 'jetpack_fuel';
 
 export type GameMode = 'deathmatch';
 
@@ -138,6 +186,10 @@ export interface WeaponData {
   pellets: number;
   explosionRadius: number;
   projectileSpeed: number;
+  ammo: number;
+  reloadTime: number;
+  knockback: number;
+  damageType: string;
 }
 
 export interface PlayerInput {

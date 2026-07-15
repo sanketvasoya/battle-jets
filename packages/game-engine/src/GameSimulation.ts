@@ -1,6 +1,7 @@
 import { 
   GAME_CONSTANTS, 
   WEAPONS, 
+  POWER_UP_CONFIG,
   Vector2, 
   PlayerState, 
   ProjectileState, 
@@ -10,6 +11,10 @@ import {
   MapData, 
   WeaponType, 
   KillFeedEntry,
+  BoxState,
+  PowerUpState,
+  PowerUpType,
+  MovingPlatformState,
   distance,
   normalize,
   generateId
@@ -28,7 +33,6 @@ export function intersectSegmentBox(
   const dx = p1.x - p0.x;
   const dy = p1.y - p0.y;
 
-  // X axis
   if (Math.abs(dx) < 0.000001) {
     if (p0.x < boxMin.x || p0.x > boxMax.x) return false;
   } else {
@@ -41,7 +45,6 @@ export function intersectSegmentBox(
     if (tmin > tmax) return false;
   }
 
-  // Y axis
   if (Math.abs(dy) < 0.000001) {
     if (p0.y < boxMin.y || p0.y > boxMax.y) return false;
   } else {
@@ -64,15 +67,21 @@ export class GameSimulation {
   public players = new Map<string, PlayerState>();
   public projectiles: ProjectileState[] = [];
   public grenades: GrenadeState[] = [];
+  public boxes: BoxState[] = [];
+  public powerUps: PowerUpState[] = [];
   
   private playerBodies = new Map<string, planck.Body>();
-  private playerShootCooldowns = new Map<string, number>(); // in ticks
-  private playerRespawnTimers = new Map<string, number>(); // in ticks
+  private playerShootCooldowns = new Map<string, number>();
+  private playerRespawnTimers = new Map<string, number>();
+  private activePowerUps = new Map<string, Map<PowerUpType, number>>();
+  
+  private powerUpSpawnTimer = 0;
+  private nextPowerUpId = 0;
   
   public tickCount = 0;
   public matchId: string;
   public startTime: number;
-  public timeRemaining: number; // in seconds
+  public timeRemaining: number;
   public isFinished = false;
   public killFeed: KillFeedEntry[] = [];
   
@@ -91,6 +100,16 @@ export class GameSimulation {
   public loadMap(mapData: MapData) {
     this.mapData = mapData;
     this.physicsWorld.loadMap(mapData);
+    this.boxes = mapData.boxes.map((b) => ({
+      id: b.id,
+      x: b.x,
+      y: b.y,
+      width: b.width,
+      height: b.height,
+      health: b.health,
+      maxHealth: b.health,
+      isDestroyed: false,
+    }));
   }
 
   public addPlayer(playerId: string, username: string, avatar: string) {
@@ -98,6 +117,7 @@ export class GameSimulation {
     const body = this.physicsWorld.addPlayer(playerId, spawn.x, spawn.y);
     this.playerBodies.set(playerId, body);
 
+    const weaponData = WEAPONS['assault_rifle'];
     const playerState: PlayerState = {
       id: playerId,
       username,
@@ -114,11 +134,17 @@ export class GameSimulation {
       grenades: GAME_CONSTANTS.MAX_GRENADES,
       jetpackActive: false,
       jetpackFuel: GAME_CONSTANTS.JETPACK_MAX_FUEL,
-      lastInputTick: 0
+      lastInputTick: 0,
+      ammo: weaponData.ammo,
+      maxAmmo: weaponData.ammo,
+      isReloading: false,
+      reloadTimer: 0,
+      knockbackMultiplier: 1,
     };
 
     this.players.set(playerId, playerState);
     this.playerShootCooldowns.set(playerId, 0);
+    this.activePowerUps.set(playerId, new Map());
   }
 
   public removePlayer(playerId: string) {
@@ -127,6 +153,7 @@ export class GameSimulation {
     this.physicsWorld.removePlayer(playerId);
     this.playerShootCooldowns.delete(playerId);
     this.playerRespawnTimers.delete(playerId);
+    this.activePowerUps.delete(playerId);
   }
 
   public setCallbacks(callbacks: {
@@ -147,62 +174,104 @@ export class GameSimulation {
 
     player.lastInputTick = input.tick;
 
+    // Decrement reload timer
+    if (player.isReloading) {
+      player.reloadTimer -= 1 / 60;
+      if (player.reloadTimer <= 0) {
+        player.isReloading = false;
+        player.ammo = player.maxAmmo;
+      }
+    }
+
+    // Decrement power-up timers
+    const pows = this.activePowerUps.get(playerId);
+    if (pows) {
+      for (const [type, timer] of pows) {
+        if (timer > 0) {
+          pows.set(type, timer - 1 / 60);
+          if (pows.get(type)! <= 0) {
+            pows.delete(type);
+            this.applyPowerUpEnd(playerId, type);
+          }
+        }
+      }
+    }
+
     // 1. Aim Angle
     player.aimAngle = Math.atan2(input.aimY, input.aimX);
 
-    // 2. Walk Movement (Horizontal)
-    const isGrounded = this.physicsWorld.isPlayerGrounded(playerId);
+    // 2. Walk Movement
     const currentVel = body.getLinearVelocity();
-    
     let walkSpeed = GAME_CONSTANTS.PLAYER_SPEED;
-    // Check if sprinting (if walking same direction and player input indicates sprint speed, or we can just stick to default speed)
-    // Let's use simple walk speed
+    if (pows?.has('speed')) {
+      walkSpeed *= POWER_UP_CONFIG.speed.magnitude;
+    }
     const targetVx = input.moveX * walkSpeed;
-    
-    // Set horizontal velocity directly to make platforming feel crisp
-    this.physicsWorld.setPlayerVelocity(playerId, targetVx, -currentVel.y * 30); // maintain gravity/jump Y velocity
+    this.physicsWorld.setPlayerVelocity(playerId, targetVx, -currentVel.y * 30);
 
     // 3. Jump
+    const isGrounded = this.physicsWorld.isPlayerGrounded(playerId);
     if (input.moveY < -0.5 && isGrounded) {
-      this.physicsWorld.setPlayerVelocity(
-        playerId,
-        targetVx,
-        GAME_CONSTANTS.JUMP_FORCE
-      );
+      this.physicsWorld.setPlayerVelocity(playerId, targetVx, GAME_CONSTANTS.JUMP_FORCE);
     }
 
-    // 4. Jetpack
+    // 4. Jetpack with fuel
     player.jetpackActive = input.jetpack;
-    if (input.jetpack) {
-      // In Phase 1, fuel is infinite, so we don't drain fuel, but we apply steady upward force/velocity
-      const jetpackForceY = GAME_CONSTANTS.JETPACK_FORCE;
-      
-      // Apply upward force center (combatting gravity which is negative)
-      // Since Planck gravity is -12 m/s2 (about -360 px/s2), we need an upward force that accelerates player upward.
-      // Alternatively, we can just add upward velocity directly or apply an upward force:
+    if (input.jetpack && player.jetpackFuel > 0) {
       const mass = body.getMass();
-      // gravity acceleration is 12 m/s2 downwards. Let's apply upward acceleration of 22 m/s2 so they rise at 10 m/s2.
       body.applyForceToCenter(planck.Vec2(0, 22 * mass), true);
+      player.jetpackFuel = Math.max(0, player.jetpackFuel - GAME_CONSTANTS.JETPACK_FUEL_DRAIN / 60);
+    } else if (!input.jetpack) {
+      player.jetpackFuel = Math.min(
+        GAME_CONSTANTS.JETPACK_MAX_FUEL,
+        player.jetpackFuel + GAME_CONSTANTS.JETPACK_FUEL_REGEN / 60
+      );
     }
 
     // 5. Weapon Switch
     if (input.switchWeapon && input.switchWeapon !== player.weapon) {
-      player.weapon = input.switchWeapon;
-      this.playerShootCooldowns.set(playerId, 10); // small delay when switching
+      const newWeaponData = WEAPONS[input.switchWeapon];
+      if (newWeaponData) {
+        player.weapon = input.switchWeapon;
+        player.ammo = newWeaponData.ammo;
+        player.maxAmmo = newWeaponData.ammo;
+        player.isReloading = false;
+        player.reloadTimer = 0;
+        this.playerShootCooldowns.set(playerId, 10);
+      }
     }
 
-    // 6. Shooting
+    // 6. Shooting (with ammo)
     const cooldown = this.playerShootCooldowns.get(playerId) || 0;
-    if (input.shoot && cooldown <= 0) {
-      this.fireWeapon(playerId);
+    if (input.shoot && cooldown <= 0 && !player.isReloading) {
+      if (player.ammo > 0 || player.weapon === 'melee') {
+        this.fireWeapon(playerId);
+      } else {
+        this.startReload(playerId);
+      }
     }
 
-    // 7. Grenade
+    // 7. Auto-reload when empty and trying to shoot
+    if (input.shoot && player.ammo <= 0 && !player.isReloading && player.weapon !== 'melee') {
+      this.startReload(playerId);
+    }
+
+    // 8. Grenade
     if (input.grenade && player.grenades > 0) {
-      // In Phase 1 grenade throw speed is fixed, let's limit grenade rate
-      // Let's check cooldown or throw
       this.throwGrenade(playerId);
     }
+
+    // 9. Check power-up pickup
+    this.checkPowerUpPickup(playerId);
+  }
+
+  private startReload(playerId: string) {
+    const player = this.players.get(playerId);
+    if (!player || player.isReloading) return;
+    const weaponData = WEAPONS[player.weapon];
+    if (!weaponData || weaponData.ammo === Infinity) return;
+    player.isReloading = true;
+    player.reloadTimer = weaponData.reloadTime;
   }
 
   private fireWeapon(playerId: string) {
@@ -212,51 +281,91 @@ export class GameSimulation {
     const weaponData = WEAPONS[player.weapon];
     if (!weaponData) return;
 
-    // Reset cooldown (60 ticks per second)
+    if (player.weapon !== 'melee') {
+      player.ammo--;
+    }
+
     const cooldownTicks = Math.ceil(60 / weaponData.fireRate);
     this.playerShootCooldowns.set(playerId, cooldownTicks);
 
-    const gunBarrelOffset = 25; // distance from center of player to barrel
+    const gunBarrelOffset = 25;
     const angle = player.aimAngle;
     const spawnX = player.position.x + Math.cos(angle) * gunBarrelOffset;
     const spawnY = player.position.y + Math.sin(angle) * gunBarrelOffset;
 
+    let damageMultiplier = 1;
+    if (this.activePowerUps.get(playerId)?.has('damage')) {
+      damageMultiplier = POWER_UP_CONFIG.damage.magnitude;
+    }
+
+    if (player.weapon === 'melee') {
+      this.meleeAttack(playerId, spawnX, spawnY, angle, damageMultiplier);
+      return;
+    }
+
+    if (player.weapon === 'grenade_launcher') {
+      const grenadeId = generateId();
+      const speed = weaponData.projectileSpeed;
+      const vx = Math.cos(angle) * speed;
+      const vy = Math.sin(angle) * speed;
+      this.physicsWorld.addGrenade(grenadeId, playerId, spawnX, spawnY, vx, vy);
+      this.grenades.push({
+        id: grenadeId,
+        ownerId: playerId,
+        position: { x: spawnX, y: spawnY },
+        velocity: { x: vx, y: vy },
+        fuseTimer: GAME_CONSTANTS.GRENADE_FUSE_TIME,
+        createdAt: Date.now(),
+      });
+      return;
+    }
+
     if (player.weapon === 'shotgun') {
-      // Shotgun fires multiple pellets
       for (let i = 0; i < weaponData.pellets; i++) {
-        // Spread is randomized angle
         const pelletAngle = angle + (Math.random() - 0.5) * weaponData.spread;
         const speed = weaponData.projectileSpeed;
-        const vx = Math.cos(pelletAngle) * speed;
-        const vy = Math.sin(pelletAngle) * speed;
-
         this.projectiles.push({
           id: generateId(),
           ownerId: playerId,
           position: { x: spawnX, y: spawnY },
-          velocity: { x: vx, y: vy },
+          velocity: { x: Math.cos(pelletAngle) * speed, y: Math.sin(pelletAngle) * speed },
           weapon: player.weapon,
-          damage: weaponData.damage,
-          createdAt: Date.now()
+          damage: Math.round(weaponData.damage * damageMultiplier),
+          createdAt: Date.now(),
         });
       }
     } else {
-      // Normal bullet (AR, Sniper, Rocket)
       const bulletAngle = angle + (Math.random() - 0.5) * weaponData.spread;
       const speed = weaponData.projectileSpeed;
-      const vx = Math.cos(bulletAngle) * speed;
-      const vy = Math.sin(bulletAngle) * speed;
-
       this.projectiles.push({
         id: generateId(),
         ownerId: playerId,
         position: { x: spawnX, y: spawnY },
-        velocity: { x: vx, y: vy },
+        velocity: { x: Math.cos(bulletAngle) * speed, y: Math.sin(bulletAngle) * speed },
         weapon: player.weapon,
-        damage: weaponData.damage,
-        createdAt: Date.now()
+        damage: Math.round(weaponData.damage * damageMultiplier),
+        createdAt: Date.now(),
       });
     }
+  }
+
+  private meleeAttack(playerId: string, spawnX: number, spawnY: number, angle: number, damageMultiplier: number) {
+    const weaponData = WEAPONS['melee'];
+    const range = weaponData.range;
+
+    this.players.forEach((target, targetId) => {
+      if (!target.isAlive || targetId === playerId) return;
+      const dist = distance({ x: spawnX, y: spawnY }, target.position);
+      if (dist <= range) {
+        const dir = normalize({ x: target.position.x - spawnX, y: target.position.y - spawnY });
+        const dot = dir.x * Math.cos(angle) + dir.y * Math.sin(angle);
+        if (dot > 0.5) {
+          const damage = Math.round(weaponData.damage * damageMultiplier);
+          this.damagePlayer(targetId, damage, playerId, 'melee');
+          this.applyKnockback(targetId, playerId, weaponData.knockback);
+        }
+      }
+    });
   }
 
   private throwGrenade(playerId: string) {
@@ -275,8 +384,6 @@ export class GameSimulation {
     const vy = Math.sin(angle) * speed;
 
     const grenadeId = generateId();
-    
-    // Spawn in physics world
     this.physicsWorld.addGrenade(grenadeId, playerId, spawnX, spawnY, vx, vy);
 
     this.grenades.push({
@@ -285,28 +392,23 @@ export class GameSimulation {
       position: { x: spawnX, y: spawnY },
       velocity: { x: vx, y: vy },
       fuseTimer: GAME_CONSTANTS.GRENADE_FUSE_TIME,
-      createdAt: Date.now()
+      createdAt: Date.now(),
     });
   }
 
   public tick() {
     this.tickCount++;
 
-    // 1. Step physics
-    // Standard delta time is 1/60th of a second (16.67ms)
     this.physicsWorld.step(1 / 60);
 
-    // 2. Decrement shoot cooldowns
     this.playerShootCooldowns.forEach((cooldown, playerId) => {
       if (cooldown > 0) {
         this.playerShootCooldowns.set(playerId, cooldown - 1);
       }
     });
 
-    // 3. Update player positions/velocities from physics bodies
     this.players.forEach((player, playerId) => {
       if (!player.isAlive) {
-        // Handle respawn timer
         let timer = this.playerRespawnTimers.get(playerId) || 0;
         if (timer > 0) {
           timer--;
@@ -326,23 +428,16 @@ export class GameSimulation {
         player.velocity = pVel;
       }
 
-      // Check map boundary death (falling out of map)
-      // Map height is 1600px. Standard top is 0, bottom is 1600.
-      // If player y goes below bottom limit (e.g. y > 1800), they die!
       if (player.position.y > GAME_CONSTANTS.MAP_HEIGHT + 200) {
         this.damagePlayer(playerId, 9999, 'environment');
       }
     });
 
-    // 4. Update and step Grenades
     this.updateGrenades();
-
-    // 5. Update and collide Projectiles
     this.updateProjectiles();
+    this.updateBoxState();
+    this.spawnPowerUps();
 
-    // 6. Update moving platforms position (already handled in physicsWorld.step)
-
-    // 7. Decrement match timer (every 60 ticks is 1 second)
     if (this.tickCount % 60 === 0 && this.timeRemaining > 0) {
       this.timeRemaining--;
       if (this.timeRemaining <= 0) {
@@ -355,9 +450,6 @@ export class GameSimulation {
     const activeGrenades: GrenadeState[] = [];
 
     this.grenades.forEach((grenade) => {
-      const gBody = this.physicsWorld.getGrenadeBody(grenade.id);
-      if (!gBody) return;
-
       const gPos = this.physicsWorld.getGrenadePosition(grenade.id);
       const gVel = this.physicsWorld.getGrenadeVelocity(grenade.id);
 
@@ -366,7 +458,6 @@ export class GameSimulation {
         grenade.velocity = gVel;
       }
 
-      // Decrement fuse timer
       grenade.fuseTimer -= 1 / 60;
       if (grenade.fuseTimer <= 0) {
         this.explodeGrenade(grenade);
@@ -383,7 +474,6 @@ export class GameSimulation {
     const radius = GAME_CONSTANTS.GRENADE_EXPLOSION_RADIUS;
     const maxDamage = GAME_CONSTANTS.GRENADE_DAMAGE;
 
-    // Apply damage to players in radius
     this.players.forEach((player, playerId) => {
       if (!player.isAlive) return;
 
@@ -392,27 +482,13 @@ export class GameSimulation {
         const falloff = 1 - (dist / radius);
         const damage = Math.round(maxDamage * falloff);
 
-        // Apply physical pushback
-        const body = this.playerBodies.get(playerId);
-        if (body && dist > 1) {
-          const dir = normalize({
-            x: player.position.x - explosionPos.x,
-            y: player.position.y - explosionPos.y
-          });
-          // Apply impulse (standard screen coordinate mapping inverted in physics)
-          const impulseStrength = falloff * 20.0 * body.getMass();
-          body.applyLinearImpulse(
-            planck.Vec2(dir.x * impulseStrength, -dir.y * impulseStrength),
-            body.getWorldCenter(),
-            true
-          );
-        }
-
-        this.damagePlayer(playerId, damage, grenade.ownerId, 'rocket_launcher'); // treat grenade explosion similar to rocket explosion
+        this.applyKnockback(playerId, grenade.ownerId, 20, explosionPos);
+        this.damagePlayer(playerId, damage, grenade.ownerId, 'rocket_launcher');
       }
     });
 
-    // Remove from physics world
+    this.damageBoxAtPosition(explosionPos, radius, 80);
+
     this.physicsWorld.removeGrenade(grenade.id);
   }
 
@@ -427,11 +503,9 @@ export class GameSimulation {
 
       let collided = false;
 
-      // 1. Collide with players
       for (const [playerId, player] of this.players.entries()) {
         if (!player.isAlive || playerId === proj.ownerId) continue;
 
-        // Player AABB box dimensions
         const halfW = GAME_CONSTANTS.PLAYER_WIDTH / 2;
         const halfH = GAME_CONSTANTS.PLAYER_HEIGHT / 2;
         const boxMin = { x: player.position.x - halfW, y: player.position.y - halfH };
@@ -439,6 +513,7 @@ export class GameSimulation {
 
         if (intersectSegmentBox(oldPos, proj.position, boxMin, boxMax)) {
           this.damagePlayer(playerId, proj.damage, proj.ownerId, proj.weapon);
+          this.applyKnockback(playerId, proj.ownerId, WEAPONS[proj.weapon]?.knockback || 0);
           collided = true;
           break;
         }
@@ -448,13 +523,11 @@ export class GameSimulation {
         if (proj.weapon === 'rocket_launcher') {
           this.triggerRocketExplosion(proj.position, proj.ownerId);
         }
-        return; // Destroy projectile
+        return;
       }
 
-      // 2. Collide with map platforms
       if (this.mapData) {
         for (const platform of this.mapData.platforms) {
-          // If it's a one-way platform, projectiles fly right through!
           if (platform.type === 'one_way') continue;
 
           const boxMin = { x: platform.x, y: platform.y };
@@ -471,12 +544,29 @@ export class GameSimulation {
         if (proj.weapon === 'rocket_launcher') {
           this.triggerRocketExplosion(proj.position, proj.ownerId);
         }
-        return; // Destroy projectile
+        return;
       }
 
-      // 3. Collide with boundary or range limit
-      const startDist = distance(oldPos, proj.position); // approximate
+      for (const box of this.boxes) {
+        if (box.isDestroyed) continue;
+        const boxMin = { x: box.x, y: box.y };
+        const boxMax = { x: box.x + box.width, y: box.y + box.height };
+        if (intersectSegmentBox(oldPos, proj.position, boxMin, boxMax)) {
+          this.damageBox(box.id, proj.damage);
+          if (proj.weapon === 'rocket_launcher') {
+            this.triggerRocketExplosion(proj.position, proj.ownerId);
+          }
+          collided = true;
+          break;
+        }
+      }
+
+      if (collided) return;
+
       const limitRange = WEAPONS[proj.weapon]?.range || 1000;
+      const traveled = distance(oldPos, proj.position);
+      if (traveled > limitRange) return;
+
       if (proj.position.x < -200 || proj.position.x > GAME_CONSTANTS.MAP_WIDTH + 200 ||
           proj.position.y < -200 || proj.position.y > GAME_CONSTANTS.MAP_HEIGHT + 200) {
         if (proj.weapon === 'rocket_launcher') {
@@ -504,31 +594,171 @@ export class GameSimulation {
         const falloff = 1 - (dist / radius);
         const damage = Math.round(maxDamage * falloff);
 
-        const body = this.playerBodies.get(playerId);
-        if (body && dist > 1) {
-          const dir = normalize({
-            x: player.position.x - explosionPos.x,
-            y: player.position.y - explosionPos.y
-          });
-          // Apply outward impulse
-          const impulseStrength = falloff * 25.0 * body.getMass();
-          body.applyLinearImpulse(
-            planck.Vec2(dir.x * impulseStrength, -dir.y * impulseStrength),
-            body.getWorldCenter(),
-            true
-          );
-        }
-
+        this.applyKnockback(playerId, ownerId, 25, explosionPos);
         this.damagePlayer(playerId, damage, ownerId, 'rocket_launcher');
       }
     });
+
+    this.damageBoxAtPosition(explosionPos, radius, 60);
+  }
+
+  private applyKnockback(targetId: string, attackerId: string, knockbackForce: number, sourcePos?: Vector2) {
+    const target = this.players.get(targetId);
+    const body = this.playerBodies.get(targetId);
+    if (!target || !body || !target.isAlive) return;
+
+    let dir: Vector2;
+    if (sourcePos) {
+      dir = normalize({ x: target.position.x - sourcePos.x, y: target.position.y - sourcePos.y });
+    } else {
+      const attacker = this.players.get(attackerId);
+      if (!attacker) return;
+      dir = normalize({ x: target.position.x - attacker.position.x, y: target.position.y - attacker.position.y });
+    }
+
+    const shieldActive = this.activePowerUps.get(targetId)?.has('shield');
+    const multiplier = shieldActive ? 0.3 : 1;
+    const impulseStrength = knockbackForce * GAME_CONSTANTS.KNOCKBACK_SCALE * body.getMass() * multiplier;
+
+    body.applyLinearImpulse(
+      planck.Vec2(dir.x * impulseStrength, -dir.y * impulseStrength),
+      body.getWorldCenter(),
+      true
+    );
+  }
+
+  private damageBox(boxId: string, damage: number) {
+    const box = this.boxes.find((b) => b.id === boxId);
+    if (!box || box.isDestroyed) return;
+
+    box.health -= damage;
+    if (box.health <= 0) {
+      box.health = 0;
+      box.isDestroyed = true;
+      this.physicsWorld.removeBox(boxId);
+    }
+  }
+
+  private damageBoxAtPosition(pos: Vector2, radius: number, damage: number) {
+    for (const box of this.boxes) {
+      if (box.isDestroyed) continue;
+      const boxCenter = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      const dist = distance(pos, boxCenter);
+      if (dist <= radius + Math.max(box.width, box.height) / 2) {
+        const falloff = 1 - (dist / (radius + Math.max(box.width, box.height) / 2));
+        this.damageBox(box.id, Math.round(damage * falloff));
+      }
+    }
+  }
+
+  private updateBoxState() {
+    if (this.mapData) {
+      for (const box of this.boxes) {
+        if (!box.isDestroyed) {
+          const physHealth = this.physicsWorld.getBoxHealth(box.id);
+          if (physHealth !== null && physHealth !== box.health) {
+            box.health = physHealth;
+            if (box.health <= 0) {
+              box.isDestroyed = true;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private spawnPowerUps() {
+    this.powerUpSpawnTimer++;
+    if (this.powerUpSpawnTimer < GAME_CONSTANTS.POWER_UP_SPAWN_INTERVAL * 60) return;
+    if (this.powerUps.filter((p) => p.active).length >= GAME_CONSTANTS.POWER_UP_MAX_ACTIVE) return;
+
+    this.powerUpSpawnTimer = 0;
+
+    if (!this.mapData || this.mapData.spawnPoints.length === 0) return;
+
+    const spawn = this.mapData.spawnPoints[Math.floor(Math.random() * this.mapData.spawnPoints.length)];
+    const types: PowerUpType[] = ['health', 'speed', 'damage', 'shield', 'jetpack_fuel'];
+    const type = types[Math.floor(Math.random() * types.length)];
+    const config = POWER_UP_CONFIG[type];
+
+    this.nextPowerUpId++;
+    this.powerUps.push({
+      id: `pu_${this.nextPowerUpId}`,
+      type,
+      position: { x: spawn.x, y: spawn.y - 30 },
+      active: true,
+      duration: config.duration,
+      magnitude: config.magnitude,
+    });
+  }
+
+  private checkPowerUpPickup(playerId: string) {
+    const player = this.players.get(playerId);
+    if (!player || !player.isAlive) return;
+
+    for (const powerUp of this.powerUps) {
+      if (!powerUp.active) continue;
+      const dist = distance(player.position, powerUp.position);
+      if (dist <= GAME_CONSTANTS.POWER_UP_PICKUP_RADIUS) {
+        powerUp.active = false;
+        this.applyPowerUp(playerId, powerUp);
+      }
+    }
+  }
+
+  private applyPowerUp(playerId: string, powerUp: PowerUpState) {
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    const pows = this.activePowerUps.get(playerId);
+    if (!pows) return;
+
+    if (powerUp.type === 'health') {
+      player.health = Math.min(player.maxHealth, player.health + POWER_UP_CONFIG.health.magnitude);
+      return;
+    }
+
+    if (powerUp.type === 'jetpack_fuel') {
+      player.jetpackFuel = Math.min(GAME_CONSTANTS.JETPACK_MAX_FUEL, player.jetpackFuel + POWER_UP_CONFIG.jetpack_fuel.magnitude);
+      return;
+    }
+
+    if (powerUp.type === 'shield') {
+      player.maxHealth = GAME_CONSTANTS.MAX_HEALTH * 2;
+      player.health = Math.min(player.health + GAME_CONSTANTS.MAX_HEALTH, player.maxHealth);
+    }
+
+    pows.set(powerUp.type, powerUp.duration);
+  }
+
+  private applyPowerUpEnd(playerId: string, type: PowerUpType) {
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    if (type === 'shield') {
+      player.maxHealth = GAME_CONSTANTS.MAX_HEALTH;
+      player.health = Math.min(player.health, player.maxHealth);
+    }
   }
 
   private damagePlayer(playerId: string, amount: number, attackerId: string, weapon?: WeaponType) {
     const player = this.players.get(playerId);
     if (!player || !player.isAlive) return;
 
-    player.health = Math.max(0, player.health - amount);
+    let finalDamage = amount;
+    if (weapon) {
+      const weaponData = WEAPONS[weapon];
+      if (weaponData?.damageType === 'energy') {
+        finalDamage = Math.round(amount * 0.7);
+      }
+    }
+
+    const shieldActive = this.activePowerUps.get(playerId)?.has('shield');
+    if (shieldActive) {
+      finalDamage = Math.round(finalDamage * POWER_UP_CONFIG.shield.magnitude);
+    }
+
+    player.health = Math.max(0, player.health - finalDamage);
     if (player.health <= 0) {
       this.killPlayer(playerId, attackerId, weapon || 'assault_rifle');
     }
@@ -542,11 +772,9 @@ export class GameSimulation {
     victim.deaths++;
     victim.health = 0;
 
-    // Remove physics body
     this.physicsWorld.removePlayer(victimId);
     this.playerBodies.delete(victimId);
 
-    // Set respawn timer (3 seconds = 180 ticks)
     this.playerRespawnTimers.set(victimId, 180);
 
     let killerName = 'Environment';
@@ -568,14 +796,13 @@ export class GameSimulation {
       this.onDeathCallback(victimId);
     }
 
-    // Add to local kill feed
     this.killFeed.push({
       killerId: killerId === victimId ? 'environment' : killerId,
       killerName,
       victimId,
       victimName: victim.username,
       weapon,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
 
     if (this.killFeed.length > 5) {
@@ -591,14 +818,22 @@ export class GameSimulation {
     const body = this.physicsWorld.addPlayer(playerId, spawn.x, spawn.y);
     this.playerBodies.set(playerId, body);
 
+    const weaponData = WEAPONS['assault_rifle'];
     player.position = { x: spawn.x, y: spawn.y };
     player.velocity = { x: 0, y: 0 };
     player.health = GAME_CONSTANTS.MAX_HEALTH;
     player.isAlive = true;
     player.grenades = GAME_CONSTANTS.MAX_GRENADES;
+    player.jetpackFuel = GAME_CONSTANTS.JETPACK_MAX_FUEL;
+    player.weapon = 'assault_rifle';
+    player.ammo = weaponData.ammo;
+    player.maxAmmo = weaponData.ammo;
+    player.isReloading = false;
+    player.reloadTimer = 0;
 
     this.playerRespawnTimers.delete(playerId);
     this.playerShootCooldowns.set(playerId, 0);
+    this.activePowerUps.set(playerId, new Map());
 
     if (this.onRespawnCallback) {
       this.onRespawnCallback(playerId, spawn);
@@ -610,29 +845,46 @@ export class GameSimulation {
       const idx = Math.floor(Math.random() * this.mapData.spawnPoints.length);
       return this.mapData.spawnPoints[idx];
     }
-    // Fallback default spawn
     return { x: 1500, y: 300 };
   }
 
   public getSerializableState(): any {
     const playersObj: Record<string, any> = {};
     this.players.forEach((p, id) => {
-      playersObj[id] = {
-        ...p,
-        // Ensure no Map types exist
-      };
+      playersObj[id] = { ...p };
     });
+
+    const movingPlatforms: MovingPlatformState[] = this.physicsWorld.getMovingPlatformsState().map((mp) => ({
+      id: mp.id,
+      position: mp.position,
+      width: 150,
+      height: 20,
+    }));
 
     return {
       matchId: this.matchId,
       players: playersObj,
       projectiles: this.projectiles,
       grenades: this.grenades,
+      boxes: this.boxes,
+      powerUps: this.powerUps.filter((p) => p.active),
+      movingPlatforms,
+      mapData: this.mapData ? {
+        id: this.mapData.id,
+        name: this.mapData.name,
+        width: this.mapData.width,
+        height: this.mapData.height,
+        platforms: this.mapData.platforms,
+        spawnPoints: this.mapData.spawnPoints,
+        jumpPads: this.mapData.jumpPads,
+        movingPlatforms: this.mapData.movingPlatforms,
+        boxes: this.mapData.boxes,
+      } : null,
       tick: this.tickCount,
       startTime: this.startTime,
       timeRemaining: this.timeRemaining,
       mapId: this.mapData?.id || 'default',
-      mode: 'deathmatch'
+      mode: 'deathmatch',
     };
   }
 
@@ -642,8 +894,11 @@ export class GameSimulation {
     this.playerBodies.clear();
     this.playerShootCooldowns.clear();
     this.playerRespawnTimers.clear();
+    this.activePowerUps.clear();
     this.projectiles = [];
     this.grenades = [];
+    this.boxes = [];
+    this.powerUps = [];
     this.killFeed = [];
   }
 }
