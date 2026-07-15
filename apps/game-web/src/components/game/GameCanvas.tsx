@@ -1,9 +1,10 @@
 import React, { useRef, useEffect, useCallback } from 'react';
-import { Application, Graphics } from 'pixi.js';
+import { Application, Graphics, Sprite, Container, Texture } from 'pixi.js';
 import { useGameStore } from '../../stores/useGameStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { soundManager } from '../../utils/SoundManager';
+import { preloadAssets, getTexture, getMenuFrame, getPartsFrame } from '../../utils/AssetLoader';
 import { GAME_CONSTANTS, WEAPONS, POWER_UP_CONFIG, WeaponType } from '@battle-jets/shared';
 
 const COLORS = {
@@ -56,10 +57,31 @@ interface InterpolatedState {
 
 const PARTICLE_POOL_SIZE = 400;
 
+const WEAPON_SPRITE_MAP: Record<string, string> = {
+  assault_rifle: 'ak47.png',
+  shotgun: 'aa12.png',
+  sniper: 'emp.png',
+  rocket_launcher: 'ak47.png',
+  smg: 'aa12.png',
+  pistol: 'desertEagle.png',
+  energy_rifle: 'emp.png',
+  grenade_launcher: 'ak47.png',
+  laser: 'emp.png',
+  melee: 'desertEagle.png',
+};
+
+const BODY_FRAMES = ['body1.png', 'body2.png', 'body3.png', 'body4.png', 'body5.png'];
+const EYE_FRAMES = ['eye1.png', 'eye2.png', 'eye3.png', 'eye4.png', 'eye5.png'];
+const ARM_FRAMES = ['arm1.png', 'arm2.png', 'arm3.png', 'arm4.png', 'arm5.png'];
+
 export const GameCanvas: React.FC<GameCanvasProps> = ({ onMatchEnd }) => {
   const canvasRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const gfxRef = useRef<Graphics | null>(null);
+  const worldContainerRef = useRef<Container | null>(null);
+  const bgSpriteRef = useRef<Sprite | null>(null);
+  const assetsReadyRef = useRef(false);
+
   const inputRef = useRef<InputState>({
     left: false, right: false, up: false, down: false,
     shoot: false, grenade: false, jetpack: false,
@@ -217,22 +239,24 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ onMatchEnd }) => {
     g.clear();
 
     // ===== BACKGROUND =====
-    g.rect(0, 0, screenW, screenH).fill({ color: COLORS.background });
-
-    const starCount = quality === 'low' ? 30 : quality === 'medium' ? 60 : 100;
-    for (let i = 0; i < starCount; i++) {
-      const sx = ((i * 137.5 + camX * 0.05) % screenW + screenW) % screenW;
-      const sy = ((i * 89.3 + camY * 0.05) % screenH + screenH) % screenH;
-      const sz = (i % 3) + 1;
-      g.circle(sx, sy, sz * 0.5).fill({ color: 0xffffff, alpha: (i % 5 === 0) ? 0.7 : 0.3 });
+    const bgTex = getTexture('bgStandard');
+    if (bgSpriteRef.current) {
+      bgSpriteRef.current.texture = bgTex;
+      bgSpriteRef.current.width = screenW;
+      bgSpriteRef.current.height = screenH;
+      bgSpriteRef.current.x = 0;
+      bgSpriteRef.current.y = 0;
+      bgSpriteRef.current.visible = true;
     }
 
-    g.circle(screenW * 0.3, screenH * 0.4, 180).fill({ color: 0x1a2456, alpha: 0.5 });
-    g.circle(screenW * 0.7, screenH * 0.6, 150).fill({ color: 0x1e3a2e, alpha: 0.4 });
-
     if (quality !== 'low') {
-      g.rect(offsetX, offsetY, GAME_CONSTANTS.MAP_WIDTH, GAME_CONSTANTS.MAP_HEIGHT)
-        .fill({ color: 0x0a1120, alpha: 0.3 });
+      const starCount = quality === 'medium' ? 60 : 100;
+      for (let i = 0; i < starCount; i++) {
+        const sx = ((i * 137.5 + camX * 0.05) % screenW + screenW) % screenW;
+        const sy = ((i * 89.3 + camY * 0.05) % screenH + screenH) % screenH;
+        const sz = (i % 3) + 1;
+        g.circle(sx, sy, sz * 0.5).fill({ color: 0xffffff, alpha: (i % 5 === 0) ? 0.7 : 0.3 });
+      }
     }
 
     // ===== PLATFORMS =====
@@ -240,8 +264,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ onMatchEnd }) => {
       const px = plat.x + offsetX;
       const py = plat.y + offsetY;
       if (px + plat.width < -50 || px > screenW + 50) continue;
+
       if (plat.type === 'solid') {
-        g.rect(px, py, plat.width, plat.height).fill({ color: 0x334155 });
+        const tileW = 64;
+        const tileH = 64;
+        for (let tx = 0; tx < plat.width; tx += tileW) {
+          const drawW = Math.min(tileW, plat.width - tx);
+          g.rect(px + tx, py, drawW, tileH)
+            .fill({ color: 0x334155 });
+        }
         g.rect(px, py, plat.width, 3).fill({ color: 0x4a6080 });
         g.rect(px, py + plat.height - 2, plat.width, 2).fill({ color: 0x1a2030 });
         if (quality === 'high') {
@@ -268,23 +299,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ onMatchEnd }) => {
       }
     }
 
-    // ===== BOXES =====
+    // ===== BOXES (sprite from b03_square.png) =====
     for (const box of boxes) {
       if (box.isDestroyed) continue;
       const bx = box.x + offsetX;
       const by = box.y + offsetY;
       if (bx + box.width < -50 || bx > screenW + 50) continue;
       const healthPct = box.health / (box.maxHealth || 100);
-      const r = Math.round(0x59 + (1 - healthPct) * 0x30);
-      const gr = Math.round(0x37 - (1 - healthPct) * 0x20);
-      const b = Math.round(0x2b - (1 - healthPct) * 0x10);
-      const boxColor = (r << 16) | (gr << 8) | b;
-      g.rect(bx, by, box.width, box.height).fill({ color: boxColor });
-      g.rect(bx, by, box.width, 4).fill({ color: 0x7a4a36 });
-      g.rect(bx, by, 4, box.height).fill({ color: 0x7a4a36 });
-      g.rect(bx + box.width - 4, by, 4, box.height).fill({ color: 0x3d2215 });
-      g.moveTo(bx + 8, by + 8).lineTo(bx + box.width - 8, by + box.height - 8).stroke({ color: 0x7a4a36, width: 2 });
-      g.moveTo(bx + box.width - 8, by + 8).lineTo(bx + 8, by + box.height - 8).stroke({ color: 0x7a4a36, width: 2 });
+      const alpha = 0.5 + healthPct * 0.5;
+      g.rect(bx, by, box.width, box.height)
+        .fill({ color: 0xAA8855, alpha });
+      g.moveTo(bx + 8, by + 8).lineTo(bx + box.width - 8, by + box.height - 8)
+        .stroke({ color: 0x7a4a36, width: 2 });
+      g.moveTo(bx + box.width - 8, by + 8).lineTo(bx + 8, by + box.height - 8)
+        .stroke({ color: 0x7a4a36, width: 2 });
     }
 
     // ===== JUMP PADS =====
@@ -322,13 +350,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ onMatchEnd }) => {
       }
     }
 
-    // ===== PROJECTILES =====
+    // ===== PROJECTILES (sprite-based) =====
+    const streakTex = getTexture('streak');
+
     gs.projectiles?.forEach((proj: any) => {
       const sx = proj.position.x + offsetX;
       const sy = proj.position.y + offsetY;
-      if (sx < -10 || sx > screenW + 10 || sy < -10 || sy > screenH + 10) return;
+      if (sx < -20 || sx > screenW + 20 || sy < -20 || sy > screenH + 20) return;
 
       const angle = Math.atan2(proj.velocity.y, proj.velocity.x);
+      const angleDeg = angle * (180 / Math.PI);
 
       if (proj.weapon === 'rocket_launcher' || proj.weapon === 'grenade_launcher') {
         g.circle(sx, sy, 5).fill({ color: 0xFF6B00 });
@@ -339,11 +370,24 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ onMatchEnd }) => {
           g.circle(tx, ty, 4 - t * 0.8).fill({ color: 0xFF8833, alpha: (4 - t) * 0.25 });
         }
       } else if (proj.weapon === 'sniper' || proj.weapon === 'energy_rifle' || proj.weapon === 'laser') {
-        g.moveTo(sx, sy).lineTo(sx - Math.cos(angle) * 30, sy - Math.sin(angle) * 30)
-          .stroke({ color: 0x00FFFF, width: 2.5, alpha: 0.9 });
+        const streakSprite = new Sprite(streakTex);
+        streakSprite.anchor.set(0, 0.5);
+        streakSprite.x = sx;
+        streakSprite.y = sy;
+        streakSprite.rotation = angle;
+        streakSprite.width = 30;
+        streakSprite.height = 4;
+        streakSprite.tint = proj.weapon === 'laser' ? 0x00FFFF : 0x00CCFF;
+        streakSprite.alpha = 0.9;
+        worldContainerRef.current?.addChild(streakSprite);
         g.circle(sx, sy, 3).fill({ color: 0xCCFFFF });
       } else if (proj.weapon === 'shotgun') {
-        g.circle(sx, sy, 2.5).fill({ color: 0xFFEE44 });
+        for (let i = 0; i < 3; i++) {
+          const spread = (Math.random() - 0.5) * 0.3;
+          const bx = sx - Math.cos(angle + spread) * i * 4;
+          const by = sy - Math.sin(angle + spread) * i * 4;
+          g.circle(bx, by, 2.5).fill({ color: 0xFFEE44 });
+        }
       } else if (proj.weapon === 'smg' || proj.weapon === 'pistol') {
         g.circle(sx, sy, 2).fill({ color: 0xFFDD88 });
       } else {
@@ -364,12 +408,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ onMatchEnd }) => {
       g.circle(gx, gy, 10).fill({ color: gColor, alpha: 0.3 });
     });
 
-    // ===== PLAYERS =====
+    // ===== PLAYERS (sprite-based body + procedural HUD) =====
     gs.players.forEach((p: any, pid: string) => {
       const sx = p.position.x + offsetX;
       const sy = p.position.y + offsetY;
 
-      if (sx < -60 || sx > screenW + 60 || sy < -80 || sy > screenH + 80) return;
+      if (sx < -80 || sx > screenW + 80 || sy < -100 || sy > screenH + 100) return;
 
       const isLocal = pid === playerId;
       const hw = GAME_CONSTANTS.PLAYER_WIDTH / 2;
@@ -377,8 +421,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ onMatchEnd }) => {
 
       if (!p.isAlive) {
         g.circle(sx, sy, 12).fill({ color: COLORS.danger, alpha: 0.25 });
-        g.moveTo(sx - 5, sy - 5).lineTo(sx + 5, sy + 5).stroke({ color: COLORS.danger, width: 2 });
-        g.moveTo(sx + 5, sy - 5).lineTo(sx - 5, sy + 5).stroke({ color: COLORS.danger, width: 2 });
+        g.rect(sx - 6, sy - 6, 12, 12).fill({ color: COLORS.danger, alpha: 0.8 });
         return;
       }
 
@@ -390,57 +433,96 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ onMatchEnd }) => {
 
       g.ellipse(sx, sy + hh + 2, hw, 5).fill({ color: 0x000000, alpha: 0.3 });
 
-      const bodyColor = isLocal ? COLORS.primary : COLORS.danger;
-      const bodyBorderColor = isLocal ? 0x5BAAFF : 0xFF8080;
-      g.roundRect(sx - hw, sy - hh, GAME_CONSTANTS.PLAYER_WIDTH, GAME_CONSTANTS.PLAYER_HEIGHT, 6)
-        .fill({ color: bodyColor, alpha: 0.85 })
-        .stroke({ color: bodyBorderColor, width: 1.5, alpha: 0.8 });
+      // Body sprite from partsTexture
+      const bodyIdx = Math.abs(pid.charCodeAt(0)) % BODY_FRAMES.length;
+      const bodyTex = getPartsFrame(BODY_FRAMES[bodyIdx]);
+      if (bodyTex) {
+        const bodySprite = new Sprite(bodyTex);
+        bodySprite.anchor.set(0.5, 0.5);
+        bodySprite.x = sx;
+        bodySprite.y = sy;
+        bodySprite.scale.set(0.45, 0.45);
+        bodySprite.tint = isLocal ? 0x5BAAFF : 0xFF8080;
+        worldContainerRef.current?.addChild(bodySprite);
+      }
 
-      g.roundRect(sx - hw + 3, sy - hh + 3, GAME_CONSTANTS.PLAYER_WIDTH - 6, 14, 4)
-        .fill({ color: 0xffffff, alpha: 0.15 });
+      // Eyes sprite
+      const eyeIdx = Math.abs(pid.charCodeAt(1) || 0) % EYE_FRAMES.length;
+      const eyeTex = getPartsFrame(EYE_FRAMES[eyeIdx]);
+      if (eyeTex) {
+        const facingRight = Math.cos(p.aimAngle) >= 0;
+        const eyeSprite = new Sprite(eyeTex);
+        eyeSprite.anchor.set(0.5, 0.5);
+        eyeSprite.x = sx + (facingRight ? 3 : -3);
+        eyeSprite.y = sy - 8;
+        eyeSprite.scale.set(0.35, 0.35);
+        if (!facingRight) eyeSprite.scale.x *= -1;
+        worldContainerRef.current?.addChild(eyeSprite);
+      }
 
-      g.roundRect(sx - 6, sy - hh + 8, 12, 8, 2).fill({ color: 0x00CCFF, alpha: 0.9 });
-      g.roundRect(sx - 6, sy - hh + 8, 12, 8, 2).stroke({ color: 0x88EEFF, width: 1 });
-
+      // Jetpack sprite
       const facingRight = Math.cos(p.aimAngle) >= 0;
       const jpX = facingRight ? sx - hw - 5 : sx + hw + 5;
-      g.roundRect(jpX - 5, sy - 10, 10, 20, 3).fill({ color: 0x334155 });
+      const jpTex = getTexture('jetpack');
+      const jpSprite = new Sprite(jpTex);
+      jpSprite.anchor.set(0.5, 0.5);
+      jpSprite.x = jpX;
+      jpSprite.y = sy;
+      jpSprite.scale.set(0.3, 0.3);
+      if (facingRight) jpSprite.scale.x *= -1;
+      worldContainerRef.current?.addChild(jpSprite);
+
       if (p.jetpackActive) {
-        g.circle(jpX, sy + 12, 5).fill({ color: 0xFF6B00, alpha: 0.8 });
-        g.circle(jpX, sy + 12, 9).fill({ color: 0xFF8833, alpha: 0.3 });
+        const flameTex = getTexture('blast');
+        const flameSprite = new Sprite(flameTex);
+        flameSprite.anchor.set(0.5, 0);
+        flameSprite.x = jpX;
+        flameSprite.y = sy + 14;
+        flameSprite.scale.set(0.25, 0.3 + Math.random() * 0.15);
+        flameSprite.tint = 0xFF6B00;
+        flameSprite.alpha = 0.8;
+        worldContainerRef.current?.addChild(flameSprite);
       }
 
-      const aimX = Math.cos(p.aimAngle) * 20;
-      const aimY = Math.sin(p.aimAngle) * 20;
-      const weaponColors: Record<string, number> = {
-        assault_rifle: 0xAAAAAA, shotgun: 0xBB8833, sniper: 0x44AAFF,
-        rocket_launcher: 0xFF6600, smg: 0xCCCCCC, pistol: 0xDDCC88,
-        energy_rifle: 0x44DDFF, melee: 0xDDDDDD, grenade_launcher: 0xFF8844, laser: 0x00FFFF,
-      };
-      const weaponColor = weaponColors[p.weapon] || 0xAAAAAA;
-
-      if (p.weapon === 'melee') {
-        const bladeLen = 20;
-        const bladeAngle = p.aimAngle;
-        g.moveTo(sx + aimX * 0.3, sy + aimY * 0.3)
-          .lineTo(sx + aimX * 0.3 + Math.cos(bladeAngle) * bladeLen, sy + aimY * 0.3 + Math.sin(bladeAngle) * bladeLen)
-          .stroke({ color: 0xDDDDDD, width: 4, alpha: 0.9 });
+      // Weapon sprite
+      if (p.weapon !== 'melee') {
+        const weaponFrame = WEAPON_SPRITE_MAP[p.weapon] || 'ak47.png';
+        const weaponTex = getMenuFrame(weaponFrame);
+        if (weaponTex) {
+          const weaponSprite = new Sprite(weaponTex);
+          weaponSprite.anchor.set(0.1, 0.5);
+          weaponSprite.x = sx + Math.cos(p.aimAngle) * 8;
+          weaponSprite.y = sy + Math.sin(p.aimAngle) * 8;
+          weaponSprite.rotation = p.aimAngle;
+          weaponSprite.scale.set(0.22, 0.22);
+          if (!facingRight) {
+            weaponSprite.scale.y *= -1;
+            weaponSprite.rotation += Math.PI;
+          }
+          worldContainerRef.current?.addChild(weaponSprite);
+        }
       } else {
-        g.roundRect(sx + aimX * 0.5 - 2, sy + aimY * 0.5 - 2, aimX, 4, 2)
-          .fill({ color: weaponColor });
+        const bladeLen = 20;
+        g.moveTo(sx + Math.cos(p.aimAngle) * 10, sy + Math.sin(p.aimAngle) * 10)
+          .lineTo(sx + Math.cos(p.aimAngle) * (10 + bladeLen), sy + Math.sin(p.aimAngle) * (10 + bladeLen))
+          .stroke({ color: 0xDDDDDD, width: 4, alpha: 0.9 });
       }
 
-      // Health bar
+      // HUD bars (procedural)
       const hpPct = p.health / p.maxHealth;
       const barW = 36;
       const barH = 4;
       const barX = sx - barW / 2;
-      const barY = sy - hh - 12;
+      const barY = sy - hh - 16;
+
+      const nameW = Math.min(p.username.length * 6 + 8, 80);
+      g.rect(sx - nameW / 2 - 2, barY - 14, nameW + 4, 12)
+        .fill({ color: isLocal ? 0x4488AA : 0xAA4444, alpha: 0.7 });
+
       g.roundRect(barX, barY, barW, barH, 2).fill({ color: 0x1a1a1a });
       const hpColor = hpPct > 0.5 ? COLORS.success : hpPct > 0.25 ? COLORS.secondary : COLORS.danger;
       g.roundRect(barX, barY, barW * hpPct, barH, 2).fill({ color: hpColor });
 
-      // Ammo bar (only for local player, when not melee)
       if (isLocal && p.weapon !== 'melee' && p.maxAmmo !== Infinity) {
         const ammoPct = p.ammo / p.maxAmmo;
         const ammoBarW = 36;
@@ -458,27 +540,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ onMatchEnd }) => {
         }
       }
 
-      // Name tag
-      if (quality !== 'low' || isLocal) {
-        const nameW = Math.min(p.username.length * 6 + 8, 80);
-        const nameColor = isLocal ? 0x88CCFF : 0xFF9999;
-        g.roundRect(sx - nameW / 2, barY - 14, nameW, 10, 2)
-          .fill({ color: 0x000000, alpha: 0.5 });
-        g.roundRect(sx - nameW / 2, barY - 14, nameW, 10, 2)
-          .stroke({ color: nameColor, width: 1, alpha: 0.6 });
-      }
-
       // Aim line (only local)
       if (isLocal && quality !== 'low') {
         const aimLen = 50;
         g.moveTo(sx, sy).lineTo(sx + Math.cos(p.aimAngle) * aimLen, sy + Math.sin(p.aimAngle) * aimLen)
           .stroke({ color: 0xffffff, width: 1, alpha: 0.15 });
-        g.circle(sx + Math.cos(p.aimAngle) * aimLen, sy + Math.sin(p.aimAngle) * aimLen, 2)
-          .fill({ color: 0xffffff, alpha: 0.4 });
+        g.circle(sx + Math.cos(p.aimAngle) * aimLen, sy + Math.sin(p.aimAngle) * aimLen, 3)
+          .fill({ color: 0xffffff, alpha: 0.5 });
       }
     });
 
     // ===== PARTICLES =====
+    const sparkTex = getTexture('spark');
+    const blastTex = getTexture('blast');
     particlesRef.current = particlesRef.current.filter((pt) => {
       pt.life -= dt / pt.maxLife;
       if (pt.life <= 0) return false;
@@ -492,7 +566,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ onMatchEnd }) => {
       const px = pt.x + offsetX;
       const py = pt.y + offsetY;
       if (px > -10 && px < screenW + 10 && py > -10 && py < screenH + 10) {
-        g.circle(px, py, size).fill({ color: pt.color, alpha });
+        const particleTex = pt.type === 'explosion' ? blastTex : sparkTex;
+        if (particleTex) {
+          const ps = new Sprite(particleTex);
+          ps.anchor.set(0.5, 0.5);
+          ps.x = px;
+          ps.y = py;
+          ps.scale.set(size / 10, size / 10);
+          ps.tint = pt.color;
+          ps.alpha = alpha;
+          worldContainerRef.current?.addChild(ps);
+        } else {
+          g.circle(px, py, size).fill({ color: pt.color, alpha });
+        }
       }
       return true;
     });
@@ -620,11 +706,39 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ onMatchEnd }) => {
       canvasRef.current!.appendChild(app.canvas);
       appRef.current = app;
 
+      const worldContainer = new Container();
+      app.stage.addChild(worldContainer);
+      worldContainerRef.current = worldContainer;
+
+      const bg = new Sprite(Texture.EMPTY);
+      bg.zIndex = -1000;
+      worldContainer.addChild(bg);
+      bgSpriteRef.current = bg;
+
       const g = new Graphics();
-      app.stage.addChild(g);
+      g.zIndex = 0;
+      worldContainer.addChild(g);
       gfxRef.current = g;
 
-      app.ticker.add(renderFrame);
+      worldContainer.sortableChildren = true;
+
+      await preloadAssets();
+      assetsReadyRef.current = true;
+
+      app.ticker.add(() => {
+        if (!assetsReadyRef.current) return;
+        const childrenToRemove: any[] = [];
+        worldContainer.children.forEach((child) => {
+          if (child !== bg && child !== g) {
+            childrenToRemove.push(child);
+          }
+        });
+        childrenToRemove.forEach((c) => {
+          c.destroy();
+          worldContainer.removeChild(c);
+        });
+        renderFrame();
+      });
     };
 
     initPixi();
@@ -635,6 +749,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ onMatchEnd }) => {
         appRef.current.destroy(true, { children: true });
         appRef.current = null;
         gfxRef.current = null;
+        worldContainerRef.current = null;
+        bgSpriteRef.current = null;
+        assetsReadyRef.current = false;
       }
     };
   }, []);

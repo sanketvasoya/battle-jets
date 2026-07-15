@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { SettingsModal } from './SettingsModal';
 import { Rocket, Users, Swords, Settings, Trophy, Gamepad2, Star } from 'lucide-react';
+import { getAvatarUrl, isUIAssetsLoaded } from '../../utils/UIAssets';
+import { preloadAssets } from '../../utils/AssetLoader';
 
 const AVATAR_EMOJIS: Record<string, string> = {
   commander_alpha: '🪖',
@@ -51,6 +53,13 @@ export const MainMenuScreen: React.FC = () => {
   const navigate = useNavigate();
   const { player, logout } = useAuthStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [uiReady, setUiReady] = useState(isUIAssetsLoaded());
+
+  useEffect(() => {
+    if (!isUIAssetsLoaded()) {
+      preloadAssets().then(() => setUiReady(true));
+    }
+  }, []);
 
   if (!player) {
     navigate('/login');
@@ -74,7 +83,13 @@ export const MainMenuScreen: React.FC = () => {
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          <div className="text-5xl">{AVATAR_EMOJIS[player.avatar] || '🪖'}</div>
+          <div className="w-16 h-16 flex items-center justify-center">
+            {uiReady && getAvatarUrl(player.avatar, 56) ? (
+              <img src={getAvatarUrl(player.avatar, 56)} alt={player.avatar} className="w-14 h-14 object-contain" />
+            ) : (
+              <span className="text-5xl">{AVATAR_EMOJIS[player.avatar] || '🪖'}</span>
+            )}
+          </div>
           <div className="flex-1">
             <p className="font-heading font-bold text-lg text-text">{player.username}</p>
             <div className="flex items-center gap-3 text-xs text-textMuted mt-1">

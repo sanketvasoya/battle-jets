@@ -6,6 +6,8 @@ import { useRoomStore } from '../../stores/useRoomStore';
 import { Room, SOCKET_EVENTS } from '@battle-jets/shared';
 import { socket } from '../../utils/socket';
 import { soundManager } from '../../utils/SoundManager';
+import { getAvatarUrl, isUIAssetsLoaded } from '../../utils/UIAssets';
+import { preloadAssets } from '../../utils/AssetLoader';
 import {
   ArrowLeft,
   Plus,
@@ -49,11 +51,18 @@ export const LobbyScreen: React.FC = () => {
   const [tab, setTab] = useState<'public' | 'private' | 'create'>('public');
   const [joinCode, setJoinCode] = useState('');
   const [createPublic, setCreatePublic] = useState(true);
+  const [uiReady, setUiReady] = useState(isUIAssetsLoaded());
 
   useEffect(() => {
     initRoomListeners();
     fetchRooms();
     return () => removeRoomListeners();
+  }, []);
+
+  useEffect(() => {
+    if (!isUIAssetsLoaded()) {
+      preloadAssets().then(() => setUiReady(true));
+    }
   }, []);
 
   // Navigate to game when match starts
@@ -155,7 +164,11 @@ export const LobbyScreen: React.FC = () => {
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                 >
-                  <span className="text-2xl">{AVATAR_EMOJIS[p.avatar] || '🪖'}</span>
+                  {uiReady && getAvatarUrl(p.avatar, 32) ? (
+                    <img src={getAvatarUrl(p.avatar, 32)} alt={p.avatar} className="w-8 h-8 object-contain" />
+                  ) : (
+                    <span className="text-2xl">{AVATAR_EMOJIS[p.avatar] || '🪖'}</span>
+                  )}
                   <div className="flex-1">
                     <p className="font-bold text-sm text-text">{p.username}</p>
                     {p.id === activeRoom.hostId && (

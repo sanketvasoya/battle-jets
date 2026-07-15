@@ -6,6 +6,8 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import { useRoomStore } from '../../stores/useRoomStore';
 import { soundManager } from '../../utils/SoundManager';
 import { Trophy, Skull, Swords, Target } from 'lucide-react';
+import { getAvatarUrl, isUIAssetsLoaded } from '../../utils/UIAssets';
+import { preloadAssets } from '../../utils/AssetLoader';
 
 const AVATAR_EMOJIS: Record<string, string> = {
   commander_alpha: '🪖',
@@ -21,6 +23,13 @@ export const ResultsScreen: React.FC = () => {
   const { matchResults, resetGameStore } = useGameStore();
   const { leaveRoom } = useRoomStore();
   const [showCelebration, setShowCelebration] = useState(false);
+  const [uiReady, setUiReady] = useState(isUIAssetsLoaded());
+
+  useEffect(() => {
+    if (!isUIAssetsLoaded()) {
+      preloadAssets().then(() => setUiReady(true));
+    }
+  }, []);
 
   useEffect(() => {
     if (matchResults) {
@@ -84,7 +93,7 @@ export const ResultsScreen: React.FC = () => {
             <h3 className="text-xs uppercase tracking-widest text-textMuted mb-3">MISSION DEBRIEF</h3>
             {sortedResults.map((result, idx) => {
               const isMe = result.playerId === player?.id;
-              const avatar = AVATAR_EMOJIS['commander_alpha']; // fallback
+              const avatarUrl = uiReady && isMe ? getAvatarUrl(player?.avatar || 'commander_alpha', 32) : '';
               const isWinnerRow = result.playerId === matchResults.winnerId;
 
               return (
@@ -104,7 +113,11 @@ export const ResultsScreen: React.FC = () => {
                   <span className="text-xl font-heading font-black text-textMuted w-6 text-center">
                     {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}`}
                   </span>
-                  <span className="text-2xl">{avatar}</span>
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="avatar" className="w-8 h-8 object-contain" />
+                  ) : (
+                    <span className="text-2xl">{AVATAR_EMOJIS['commander_alpha']}</span>
+                  )}
                   <div className="flex-1">
                     <p className={`text-sm font-bold ${isMe ? 'text-primary' : 'text-text'}`}>
                       {result.username} {isMe && '(You)'}

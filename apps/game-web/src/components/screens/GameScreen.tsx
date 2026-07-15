@@ -7,6 +7,8 @@ import { useRoomStore } from '../../stores/useRoomStore';
 import { GameCanvas } from '../game/GameCanvas';
 import { GAME_CONSTANTS, WeaponType, formatTime } from '@battle-jets/shared';
 import { Heart, Clock, Skull, Swords, Pause } from 'lucide-react';
+import { getWeaponIconUrl, isUIAssetsLoaded } from '../../utils/UIAssets';
+import { preloadAssets } from '../../utils/AssetLoader';
 
 const WEAPON_ICONS: Record<WeaponType, string> = {
   assault_rifle: '🔫',
@@ -43,6 +45,7 @@ export const GameScreen: React.FC = () => {
   const { activeRoom } = useRoomStore();
   const [isPaused, setIsPaused] = useState(false);
   const [selectedWeapon, setSelectedWeapon] = useState<WeaponType>('assault_rifle');
+  const [uiReady, setUiReady] = useState(isUIAssetsLoaded());
   const isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768;
 
   const localPlayer = player && gameState ? gameState.players.get(player.id) : null;
@@ -56,6 +59,12 @@ export const GameScreen: React.FC = () => {
       navigate('/results');
     }
   }, [matchResults, navigate]);
+
+  useEffect(() => {
+    if (!isUIAssetsLoaded()) {
+      preloadAssets().then(() => setUiReady(true));
+    }
+  }, []);
 
   const handleWeaponSwitch = (weapon: WeaponType) => {
     setSelectedWeapon(weapon);
@@ -135,65 +144,86 @@ export const GameScreen: React.FC = () => {
         {/* Bottom-Left: Weapons */}
         {!isMobile && (
           <div className="absolute bottom-4 left-4 flex gap-2 pointer-events-auto">
-            {WEAPONS.map((w, idx) => (
-              <button
-                key={w}
-                id={`weapon-btn-${w}`}
-                onClick={() => handleWeaponSwitch(w)}
-                className={`flex flex-col items-center justify-center w-14 h-14 rounded-xl border transition-all ${
-                  selectedWeapon === w
-                    ? 'border-primary bg-primary/20 shadow-glow'
-                    : 'border-border bg-surface/70 hover:border-textMuted'
-                }`}
-              >
-                <span className="text-xl">{WEAPON_ICONS[w]}</span>
-                <span className="text-xs text-textMuted">[{idx + 1}]</span>
-              </button>
-            ))}
+            {WEAPONS.map((w, idx) => {
+              const iconUrl = uiReady ? getWeaponIconUrl(w, 32) : '';
+              return (
+                <button
+                  key={w}
+                  id={`weapon-btn-${w}`}
+                  onClick={() => handleWeaponSwitch(w)}
+                  className={`flex flex-col items-center justify-center w-14 h-14 rounded-xl border transition-all ${
+                    selectedWeapon === w
+                      ? 'border-primary bg-primary/20 shadow-glow'
+                      : 'border-border bg-surface/70 hover:border-textMuted'
+                  }`}
+                >
+                  {iconUrl ? (
+                    <img src={iconUrl} alt={w} className="w-8 h-8 object-contain" />
+                  ) : (
+                    <span className="text-xl">{WEAPON_ICONS[w]}</span>
+                  )}
+                  <span className="text-xs text-textMuted">[{idx + 1}]</span>
+                </button>
+              );
+            })}
           </div>
         )}
 
         {/* Bottom-Center: Mobile weapons */}
         {isMobile && (
           <div className="absolute bottom-28 right-4 flex flex-col gap-2 pointer-events-auto">
-            {WEAPONS.map((w) => (
-              <button
-                key={w}
-                id={`mobile-weapon-btn-${w}`}
-                onClick={() => handleWeaponSwitch(w)}
-                className={`w-12 h-12 rounded-xl border flex items-center justify-center transition-all ${
-                  selectedWeapon === w
-                    ? 'border-primary bg-primary/30'
-                    : 'border-border bg-surface/50'
-                }`}
-              >
-                <span className="text-lg">{WEAPON_ICONS[w]}</span>
-              </button>
-            ))}
+            {WEAPONS.map((w) => {
+              const iconUrl = uiReady ? getWeaponIconUrl(w, 28) : '';
+              return (
+                <button
+                  key={w}
+                  id={`mobile-weapon-btn-${w}`}
+                  onClick={() => handleWeaponSwitch(w)}
+                  className={`w-12 h-12 rounded-xl border flex items-center justify-center transition-all ${
+                    selectedWeapon === w
+                      ? 'border-primary bg-primary/30'
+                      : 'border-border bg-surface/50'
+                  }`}
+                >
+                  {iconUrl ? (
+                    <img src={iconUrl} alt={w} className="w-7 h-7 object-contain" />
+                  ) : (
+                    <span className="text-lg">{WEAPON_ICONS[w]}</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
 
         {/* Right: Kill Feed */}
         <div className="absolute top-20 right-4 w-52 space-y-1.5">
           <AnimatePresence>
-            {killFeed.map((k, idx) => (
-              <motion.div
-                key={`${k.timestamp}-${idx}`}
-                className="glass rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                transition={{ duration: 0.3 }}
-              >
-                <span className={`font-bold truncate ${k.killerId === player?.id ? 'text-primary' : 'text-text'}`}>
-                  {k.killerName}
-                </span>
-                <span className="text-textMuted">{WEAPON_ICONS[k.weapon]}</span>
-                <span className={`font-bold truncate ${k.victimId === player?.id ? 'text-danger' : 'text-textMuted'}`}>
-                  {k.victimName}
-                </span>
-              </motion.div>
-            ))}
+            {killFeed.map((k, idx) => {
+              const killWeaponUrl = uiReady ? getWeaponIconUrl(k.weapon, 16) : '';
+              return (
+                <motion.div
+                  key={`${k.timestamp}-${idx}`}
+                  className="glass rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <span className={`font-bold truncate ${k.killerId === player?.id ? 'text-primary' : 'text-text'}`}>
+                    {k.killerName}
+                  </span>
+                  {killWeaponUrl ? (
+                    <img src={killWeaponUrl} alt={k.weapon} className="w-4 h-4 object-contain" />
+                  ) : (
+                    <span className="text-textMuted">{WEAPON_ICONS[k.weapon]}</span>
+                  )}
+                  <span className={`font-bold truncate ${k.victimId === player?.id ? 'text-danger' : 'text-textMuted'}`}>
+                    {k.victimName}
+                  </span>
+                </motion.div>
+              );
+            })}
           </AnimatePresence>
         </div>
 
