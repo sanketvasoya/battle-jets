@@ -22,7 +22,7 @@ COPY packages/game-engine/src/ packages/game-engine/src/
 COPY apps/server/ apps/server/
 ENV PNPM_NODE_LINKER=hoisted
 RUN pnpm install --no-frozen-lockfile
-RUN pnpm --filter @battle-jets/server exec prisma generate
+RUN npx --yes prisma@6.19.3 generate --schema=./database/schema.prisma
 RUN pnpm --filter @battle-jets/shared build
 RUN pnpm --filter @battle-jets/physics build
 RUN pnpm --filter @battle-jets/game-engine build
