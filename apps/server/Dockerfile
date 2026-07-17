@@ -23,7 +23,7 @@ COPY apps/server/ apps/server/
 ENV PNPM_NODE_LINKER=hoisted
 RUN pnpm install --no-frozen-lockfile
 RUN cd apps/server && pnpm exec prisma generate --schema=../../database/schema.prisma
-RUN PRISMA_DIR=$(find /app/node_modules -path "*/@prisma/client/.prisma" -type d | head -1) && tar -czf /tmp/prisma-generated.tar.gz -C "$PRISMA_DIR" .
+RUN PRISMA_DIR=$(find /app/node_modules/.pnpm -maxdepth 4 -path "*/@prisma+client*/node_modules/@prisma/client" -type d | head -1) && tar -czf /tmp/prisma-generated.tar.gz -C "$PRISMA_DIR" .
 RUN pnpm --filter @battle-jets/shared build
 RUN pnpm --filter @battle-jets/physics build
 RUN pnpm --filter @battle-jets/game-engine build
@@ -57,9 +57,8 @@ COPY --from=builder /app/database ./database
 COPY --from=builder /tmp/prisma-generated.tar.gz /tmp/prisma-generated.tar.gz
 COPY apps/server/entrypoint.sh /app/apps/server/entrypoint.sh
 
-RUN PRISMA_CLIENT=$(find /app/node_modules -path "*/@prisma/client/default.js" -not -path "*/.prisma/*" -exec dirname {} \; 2>/dev/null | head -1) && \
-    mkdir -p "$PRISMA_CLIENT/.prisma" && \
-    tar -xzf /tmp/prisma-generated.tar.gz -C "$PRISMA_CLIENT/.prisma" && \
+RUN PRISMA_CLIENT=$(find /app/node_modules/.pnpm -maxdepth 4 -path "*/@prisma+client*/node_modules/@prisma/client" -type d | head -1) && \
+    tar -xzf /tmp/prisma-generated.tar.gz -C "$PRISMA_CLIENT" && \
     rm /tmp/prisma-generated.tar.gz
 
 RUN mkdir -p apps/server/uploads && chmod +x /app/apps/server/entrypoint.sh && chown -R nestjs:nodejs /app
