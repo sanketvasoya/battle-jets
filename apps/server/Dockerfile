@@ -54,7 +54,7 @@ COPY --from=builder /app/packages/physics/dist ./packages/physics/dist
 COPY --from=builder /app/packages/game-engine/dist ./packages/game-engine/dist
 COPY --from=builder /app/database ./database
 
-RUN npm install -g prisma@6.19.3 && prisma generate --schema=./database/schema.prisma && npm uninstall -g prisma
+RUN cd apps/server && pnpm exec prisma generate --schema=../../database/schema.prisma
 
 RUN mkdir -p apps/server/uploads && chown -R nestjs:nodejs /app
 USER nestjs
