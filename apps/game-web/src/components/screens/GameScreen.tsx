@@ -5,6 +5,7 @@ import { useGameStore } from '../../stores/useGameStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { useRoomStore } from '../../stores/useRoomStore';
 import { GameCanvas } from '../game/GameCanvas';
+import { TouchControls } from '../game/TouchControls';
 import { GAME_CONSTANTS, WeaponType, formatTime } from '@battle-jets/shared';
 import { Heart, Clock, Skull, Swords, Pause } from 'lucide-react';
 import { getWeaponIconUrl, isUIAssetsLoaded } from '../../utils/UIAssets';
@@ -82,6 +83,9 @@ export const GameScreen: React.FC = () => {
     <div className="relative w-full h-screen overflow-hidden select-none touch-none">
       {/* PixiJS Canvas fills the whole screen */}
       <GameCanvas onMatchEnd={handleMatchEnd} />
+
+      {/* Mobile Touch Controls */}
+      {isMobile && <TouchControls />}
 
       {/* ---- HUD Overlay ---- */}
       <div className="absolute inset-0 pointer-events-none z-10">

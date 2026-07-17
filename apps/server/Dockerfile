@@ -8,17 +8,17 @@ COPY tsconfig.base.json ./
 COPY database/ ./database/
 COPY packages/shared/package.json packages/shared/
 COPY packages/shared/tsconfig.json packages/shared/
+COPY packages/shared/src/ packages/shared/src/
 COPY packages/physics/package.json packages/physics/
 COPY packages/physics/tsconfig.json packages/physics/
+COPY packages/physics/src/ packages/physics/src/
 COPY packages/game-engine/package.json packages/game-engine/
 COPY packages/game-engine/tsconfig.json packages/game-engine/
+COPY packages/game-engine/src/ packages/game-engine/src/
 COPY packages/assets/package.json packages/assets/
 COPY packages/networking/package.json packages/networking/
 COPY packages/ui/package.json packages/ui/
 COPY apps/server/package.json apps/server/
-COPY packages/shared/src/ packages/shared/src/
-COPY packages/physics/src/ packages/physics/src/
-COPY packages/game-engine/src/ packages/game-engine/src/
 COPY apps/server/ apps/server/
 ENV PNPM_NODE_LINKER=hoisted
 RUN pnpm install --no-frozen-lockfile
@@ -32,17 +32,31 @@ FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 RUN addgroup -g 1001 nodejs && adduser -u 1001 -G nodejs -s /bin/sh -D nestjs
-COPY --from=builder /app/apps/server/dist ./dist
-COPY --from=builder /app/apps/server/package.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages/shared/dist ./node_modules/@battle-jets/shared/dist
-COPY --from=builder /app/packages/shared/package.json ./node_modules/@battle-jets/shared/package.json
-COPY --from=builder /app/packages/physics/dist ./node_modules/@battle-jets/physics/dist
-COPY --from=builder /app/packages/physics/package.json ./node_modules/@battle-jets/physics/package.json
-COPY --from=builder /app/packages/game-engine/dist ./node_modules/@battle-jets/game-engine/dist
-COPY --from=builder /app/packages/game-engine/package.json ./node_modules/@battle-jets/game-engine/package.json
+
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/shared/tsconfig.json packages/shared/
+COPY packages/physics/package.json packages/physics/
+COPY packages/physics/tsconfig.json packages/physics/
+COPY packages/game-engine/package.json packages/game-engine/
+COPY packages/game-engine/tsconfig.json packages/game-engine/
+COPY packages/assets/package.json packages/assets/
+COPY packages/networking/package.json packages/networking/
+COPY packages/ui/package.json packages/ui/
+COPY apps/server/package.json apps/server/
+
+ENV PNPM_NODE_LINKER=hoisted
+RUN pnpm install --prod --no-frozen-lockfile
+
+COPY --from=builder /app/apps/server/dist ./apps/server/dist
+COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/packages/physics/dist ./packages/physics/dist
+COPY --from=builder /app/packages/game-engine/dist ./packages/game-engine/dist
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/database ./database
-RUN mkdir -p uploads && chown -R nestjs:nodejs /app
+
+RUN mkdir -p apps/server/uploads && chown -R nestjs:nodejs /app
 USER nestjs
 EXPOSE 3001
-CMD ["node", "dist/main"]
+CMD ["node", "apps/server/dist/main"]
