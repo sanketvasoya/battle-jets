@@ -47,6 +47,9 @@ const MANIFEST = {
     nameplate1: `${ASSET_BASE}/ui/nameplate1.png`,
     nameplate2: `${ASSET_BASE}/ui/nameplate2.png`,
     nameplate3: `${ASSET_BASE}/ui/nameplate3.png`,
+    titleLogo: `${ASSET_BASE}/titles/title_ret_logo.png`,
+    titleScreen: `${ASSET_BASE}/titles/title_ret_new.png`,
+    titleScreenAlt: `${ASSET_BASE}/titles/title_ret2_new.png`,
   },
 };
 

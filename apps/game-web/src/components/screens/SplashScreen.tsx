@@ -67,30 +67,19 @@ export const SplashScreen: React.FC = () => {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8, ease: 'easeOut' }}
       >
-        {/* Jet icon */}
+        {/* Title Logo */}
         <motion.div
-          className="text-8xl mb-4"
-          animate={{ y: [-6, 6, -6] }}
-          transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-        >
-          🚀
-        </motion.div>
-
-        {/* Title */}
-        <motion.h1
-          className="text-7xl md:text-8xl font-heading font-bold uppercase tracking-tighter"
+          className="mb-4"
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.2, duration: 0.6 }}
         >
-          <span className="bg-gradient-to-r from-primary via-blue-300 to-primary bg-clip-text text-transparent">
-            Battle
-          </span>
-          <span className="text-white"> </span>
-          <span className="bg-gradient-to-r from-secondary via-orange-300 to-secondary bg-clip-text text-transparent">
-            Jets
-          </span>
-        </motion.h1>
+          <img
+            src="/assets/titles/title_ret_logo.png"
+            alt="Battle Jets"
+            className="w-64 md:w-80 h-auto drop-shadow-[0_0_30px_rgba(59,130,246,0.5)]"
+          />
+        </motion.div>
 
         <motion.p
           className="text-textMuted text-lg tracking-widest uppercase mt-2 font-body"

@@ -19,7 +19,12 @@ export default {
       },
       fontFamily: {
         heading: ["Space Grotesk", "sans-serif"],
-        body: ["Inter", "sans-serif"]
+        body: ["Inter", "sans-serif"],
+        military: ["SpaceMarine", "GROBOLD", "sans-serif"],
+        arcade: ["Norwester", "BebasNeue", "sans-serif"],
+        sciFi: ["Orbitron", "sans-serif"],
+        stencil: ["AirbornePilot", "sans-serif"],
+        digital: ["Digitalix", "monospace"],
       },
       boxShadow: {
         glow: "0 0 15px rgba(47, 128, 237, 0.4)",

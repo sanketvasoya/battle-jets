@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Mini Militia imported fonts */
+@font-face { font-family: 'SpaceMarine'; src: url('/assets/fonts/SpaceMarine.ttf') format('truetype'); font-weight: normal; font-style: normal; }
+@font-face { font-family: 'GROBOLD'; src: url('/assets/fonts/GROBOLD.ttf') format('truetype'); font-weight: normal; font-style: normal; }
+@font-face { font-family: 'Norwester'; src: url('/assets/fonts/Norwester.ttf') format('truetype'); font-weight: normal; font-style: normal; }
+@font-face { font-family: 'Orbitron'; src: url('/assets/fonts/Orbitron-Black.ttf') format('truetype'); font-weight: 900; font-style: normal; }
+@font-face { font-family: 'BebasNeue'; src: url('/assets/fonts/BebasNeueBold.ttf') format('truetype'); font-weight: bold; font-style: normal; }
+@font-face { font-family: 'AirbornePilot'; src: url('/assets/fonts/Airborne-Pilot.ttf') format('truetype'); font-weight: normal; font-style: normal; }
+@font-face { font-family: 'Digitalix'; src: url('/assets/fonts/digitalix.ttf') format('truetype'); font-weight: normal; font-style: normal; }
+
 @layer base {
   body {
     font-family: 'Inter', sans-serif;
