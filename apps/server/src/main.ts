@@ -27,6 +27,9 @@ async function bootstrap() {
 
   app.useWebSocketAdapter(new IoAdapter(app));
 
+  const httpApp = app.getHttpAdapter();
+  httpApp.get('/health', (_req: any, res: any) => { res.status(200).json({ status: 'ok' }); });
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

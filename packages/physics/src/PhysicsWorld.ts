@@ -91,7 +91,7 @@ export class PhysicsWorld {
         jumpPadData = userDataB;
       } else if (userDataB.type === 'player' && userDataA.type === 'jump_pad') {
         playerBody = bodyB;
-        jumpPadData = userDataB;
+        jumpPadData = userDataA;
       }
 
       if (playerBody && jumpPadData) {

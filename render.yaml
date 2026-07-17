@@ -12,5 +12,5 @@ services:
         value: production
       - key: PORT
         value: 3001
-    healthCheckPath: /admin/players
+    healthCheckPath: /health
     autoDeploy: true

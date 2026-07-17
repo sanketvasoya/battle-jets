@@ -95,7 +95,7 @@ export class GameService {
       console.error('Failed to create match record in DB', e);
     }
 
-    const matchId = matchRecord?.id || `match_${Math.random().toString(36).substr(2, 9)}`;
+    const matchId = matchRecord?.id || `match_${Math.random().toString(36).substring(2, 11)}`;
 
     // 3. Create simulation
     const simulation = new GameSimulation(matchId, mapData);

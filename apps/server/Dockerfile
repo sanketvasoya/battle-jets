@@ -53,10 +53,11 @@ COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/physics/dist ./packages/physics/dist
 COPY --from=builder /app/packages/game-engine/dist ./packages/game-engine/dist
 COPY --from=builder /app/database ./database
+COPY apps/server/entrypoint.sh /app/apps/server/entrypoint.sh
 
 RUN cd apps/server && pnpm exec prisma generate --schema=../../database/schema.prisma
 
-RUN mkdir -p apps/server/uploads && chown -R nestjs:nodejs /app
+RUN mkdir -p apps/server/uploads && chmod +x /app/apps/server/entrypoint.sh && chown -R nestjs:nodejs /app
 USER nestjs
 EXPOSE 3001
-CMD ["node", "apps/server/dist/main"]
+CMD ["sh", "/app/apps/server/entrypoint.sh"]
