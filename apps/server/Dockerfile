@@ -33,12 +33,28 @@ WORKDIR /app
 ENV NODE_ENV=production
 RUN addgroup -g 1001 nodejs && adduser -u 1001 -G nodejs -s /bin/sh -D nestjs
 
-COPY --from=builder /app/node_modules ./node_modules
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/shared/tsconfig.json packages/shared/
+COPY packages/physics/package.json packages/physics/
+COPY packages/physics/tsconfig.json packages/physics/
+COPY packages/game-engine/package.json packages/game-engine/
+COPY packages/game-engine/tsconfig.json packages/game-engine/
+COPY packages/assets/package.json packages/assets/
+COPY packages/networking/package.json packages/networking/
+COPY packages/ui/package.json packages/ui/
+COPY apps/server/package.json apps/server/
+
+ENV PNPM_NODE_LINKER=hoisted
+RUN pnpm install --prod --no-frozen-lockfile
+
 COPY --from=builder /app/apps/server/dist ./apps/server/dist
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/physics/dist ./packages/physics/dist
 COPY --from=builder /app/packages/game-engine/dist ./packages/game-engine/dist
 COPY --from=builder /app/database ./database
+
+RUN npm install -g prisma@6.19.3 && prisma generate --schema=./database/schema.prisma && npm uninstall -g prisma
 
 RUN mkdir -p apps/server/uploads && chown -R nestjs:nodejs /app
 USER nestjs
