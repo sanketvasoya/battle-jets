@@ -1,17 +1,7 @@
 import { create } from 'zustand';
-import { socket } from '../utils/socket';
-import { GameState, KillFeedEntry, SOCKET_EVENTS, WeaponType } from '@battle-jets/shared';
-
-interface MatchResults {
-  winnerId: string | null;
-  winnerName: string;
-  results: {
-    playerId: string;
-    username: string;
-    kills: number;
-    deaths: number;
-  }[];
-}
+import type { GameProtocol, MatchResults } from '@battle-jets/networking';
+import { SOCKET_EVENTS, GameState, KillFeedEntry, WeaponType } from '@battle-jets/shared';
+import { getDefaultProtocol } from '../utils/socket';
 
 interface GameStoreState {
   gameState: GameState | null;
@@ -20,11 +10,11 @@ interface GameStoreState {
   killFeed: KillFeedEntry[];
   localDeaths: number;
 
-  initGameListeners: () => void;
-  removeGameListeners: () => void;
-  sendInput: (input: any) => void;
-  sendWeaponSwitch: (weapon: WeaponType) => void;
-  sendThrowGrenade: (angle: number) => void;
+  initGameListeners: (protocol?: GameProtocol) => void;
+  removeGameListeners: (protocol?: GameProtocol) => void;
+  sendInput: (input: any, protocol?: GameProtocol) => void;
+  sendWeaponSwitch: (weapon: WeaponType, protocol?: GameProtocol) => void;
+  sendThrowGrenade: (angle: number, protocol?: GameProtocol) => void;
   resetGameStore: () => void;
 }
 
@@ -35,11 +25,11 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   killFeed: [],
   localDeaths: 0,
 
-  initGameListeners: () => {
-    get().removeGameListeners();
+  initGameListeners: (protocol?: GameProtocol) => {
+    get().removeGameListeners(protocol);
+    const p = protocol || getDefaultProtocol();
 
-    socket.on(SOCKET_EVENTS.MATCH_STATE, (state: any) => {
-      // Re-hydrate Map from Object sent over the network
+    p.on(SOCKET_EVENTS.MATCH_STATE, (state: any) => {
       const playersMap = new Map<string, any>();
       Object.keys(state.players).forEach((playerId) => {
         playersMap.set(playerId, state.players[playerId]);
@@ -53,11 +43,11 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       set({ gameState: hydratedState, isPlaying: true });
     });
 
-    socket.on(SOCKET_EVENTS.MATCH_END, (data: MatchResults) => {
+    p.on(SOCKET_EVENTS.MATCH_END, (data: MatchResults) => {
       set({ matchResults: data, isPlaying: false });
     });
 
-    socket.on(SOCKET_EVENTS.KILL_FEED, (kill: any) => {
+    p.on(SOCKET_EVENTS.KILL_FEED, (kill: any) => {
       set((state) => {
         const nextFeed = [...state.killFeed, kill];
         if (nextFeed.length > 5) nextFeed.shift();
@@ -65,30 +55,34 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       });
     });
 
-    socket.on(SOCKET_EVENTS.PLAYER_DIED, (data: { playerId: string }) => {
-      if (data.playerId === socket.id || data.playerId === localStorage.getItem('bj_player_id')) {
+    p.on(SOCKET_EVENTS.PLAYER_DIED, (data: { playerId: string }) => {
+      if (data.playerId === p.id || data.playerId === localStorage.getItem('bj_player_id')) {
         set((state) => ({ localDeaths: state.localDeaths + 1 }));
       }
     });
   },
 
-  removeGameListeners: () => {
-    socket.off(SOCKET_EVENTS.MATCH_STATE);
-    socket.off(SOCKET_EVENTS.MATCH_END);
-    socket.off(SOCKET_EVENTS.KILL_FEED);
-    socket.off(SOCKET_EVENTS.PLAYER_DIED);
+  removeGameListeners: (protocol?: GameProtocol) => {
+    const p = protocol || getDefaultProtocol();
+    p.off(SOCKET_EVENTS.MATCH_STATE);
+    p.off(SOCKET_EVENTS.MATCH_END);
+    p.off(SOCKET_EVENTS.KILL_FEED);
+    p.off(SOCKET_EVENTS.PLAYER_DIED);
   },
 
-  sendInput: (input: any) => {
-    socket.emit(SOCKET_EVENTS.PLAYER_INPUT, input);
+  sendInput: (input: any, protocol?: GameProtocol) => {
+    const p = protocol || getDefaultProtocol();
+    p.emit(SOCKET_EVENTS.PLAYER_INPUT, input);
   },
 
-  sendWeaponSwitch: (weapon: WeaponType) => {
-    socket.emit(SOCKET_EVENTS.SWITCH_WEAPON, weapon);
+  sendWeaponSwitch: (weapon: WeaponType, protocol?: GameProtocol) => {
+    const p = protocol || getDefaultProtocol();
+    p.emit(SOCKET_EVENTS.SWITCH_WEAPON, weapon);
   },
 
-  sendThrowGrenade: (angle: number) => {
-    socket.emit(SOCKET_EVENTS.THROW_GRENADE, { angle });
+  sendThrowGrenade: (angle: number, protocol?: GameProtocol) => {
+    const p = protocol || getDefaultProtocol();
+    p.emit(SOCKET_EVENTS.THROW_GRENADE, { angle });
   },
 
   resetGameStore: () => {
@@ -99,5 +93,5 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       killFeed: [],
       localDeaths: 0,
     });
-  }
+  },
 }));

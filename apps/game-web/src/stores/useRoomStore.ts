@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import { socket } from '../utils/socket';
+import type { GameProtocol } from '@battle-jets/networking';
 import { Room, SOCKET_EVENTS } from '@battle-jets/shared';
+import { getDefaultProtocol } from '../utils/socket';
 
 interface RoomState {
   roomsList: Room[];
@@ -10,13 +11,13 @@ interface RoomState {
   countdown: number | null;
   isReady: boolean;
 
-  fetchRooms: () => void;
-  createRoom: (isPublic: boolean, mapId: string) => Promise<Room>;
-  joinRoom: (code: string) => Promise<Room>;
-  leaveRoom: () => void;
-  toggleReady: () => void;
-  initRoomListeners: () => void;
-  removeRoomListeners: () => void;
+  fetchRooms: (protocol?: GameProtocol) => void;
+  createRoom: (isPublic: boolean, mapId: string, protocol?: GameProtocol) => Promise<Room>;
+  joinRoom: (code: string, protocol?: GameProtocol) => Promise<Room>;
+  leaveRoom: (protocol?: GameProtocol) => void;
+  toggleReady: (protocol?: GameProtocol) => void;
+  initRoomListeners: (protocol?: GameProtocol) => void;
+  removeRoomListeners: (protocol?: GameProtocol) => void;
 }
 
 export const useRoomStore = create<RoomState>((set, get) => ({
@@ -27,9 +28,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   countdown: null,
   isReady: false,
 
-  fetchRooms: () => {
+  fetchRooms: (protocol?: GameProtocol) => {
+    const p = protocol || getDefaultProtocol();
     set({ isLoading: true });
-    socket.emit(SOCKET_EVENTS.GET_ROOMS, {}, (res: { success: boolean; rooms: Room[]; error?: string }) => {
+    p.emit(SOCKET_EVENTS.GET_ROOMS, {}, (res: { success: boolean; rooms: Room[]; error?: string }) => {
       if (res && res.success) {
         set({ roomsList: res.rooms, isLoading: false });
       } else {
@@ -38,15 +40,16 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     });
   },
 
-  createRoom: async (isPublic, mapId) => {
+  createRoom: async (isPublic, mapId, protocol?) => {
+    const p = protocol || getDefaultProtocol();
     set({ isLoading: true, error: null });
     return new Promise((resolve, reject) => {
-      socket.emit(
+      p.emit(
         SOCKET_EVENTS.CREATE_ROOM,
         { isPublic, mapId },
-        (res: { success: boolean; room: Room; error?: string }) => {
+        (res: { success: boolean; room?: Room; error?: string }) => {
           set({ isLoading: false });
-          if (res && res.success) {
+          if (res && res.success && res.room) {
             set({ activeRoom: res.room, isReady: false, countdown: null });
             resolve(res.room);
           } else {
@@ -58,15 +61,16 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     });
   },
 
-  joinRoom: async (code) => {
+  joinRoom: async (code, protocol?) => {
+    const p = protocol || getDefaultProtocol();
     set({ isLoading: true, error: null });
     return new Promise((resolve, reject) => {
-      socket.emit(
+      p.emit(
         SOCKET_EVENTS.JOIN_ROOM,
         { code: code.toUpperCase() },
-        (res: { success: boolean; room: Room; error?: string }) => {
+        (res: { success: boolean; room?: Room; error?: string }) => {
           set({ isLoading: false });
-          if (res && res.success) {
+          if (res && res.success && res.room) {
             set({ activeRoom: res.room, isReady: false, countdown: null });
             resolve(res.room);
           } else {
@@ -78,49 +82,49 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     });
   },
 
-  leaveRoom: () => {
+  leaveRoom: (protocol?: GameProtocol) => {
+    const p = protocol || getDefaultProtocol();
     const active = get().activeRoom;
     if (active) {
-      socket.emit(SOCKET_EVENTS.LEAVE_ROOM, { code: active.code });
+      p.emit(SOCKET_EVENTS.LEAVE_ROOM, { code: active.code });
       set({ activeRoom: null, isReady: false, countdown: null });
     }
   },
 
-  toggleReady: () => {
+  toggleReady: (protocol?: GameProtocol) => {
+    const p = protocol || getDefaultProtocol();
     const active = get().activeRoom;
     if (active) {
       const nextReadyState = !get().isReady;
       set({ isReady: nextReadyState });
-      socket.emit(SOCKET_EVENTS.READY_UP, { code: active.code, ready: nextReadyState });
+      p.emit(SOCKET_EVENTS.READY_UP, { code: active.code, ready: nextReadyState });
     }
   },
 
-  initRoomListeners: () => {
-    // Clean first
-    get().removeRoomListeners();
+  initRoomListeners: (protocol?: GameProtocol) => {
+    const p = protocol || getDefaultProtocol();
+    get().removeRoomListeners(protocol);
 
-    // Listen to Room updates from server
-    socket.on(SOCKET_EVENTS.ROOM_UPDATE, (room: Room | null) => {
+    p.on(SOCKET_EVENTS.ROOM_UPDATE, (room: Room | null) => {
       set({ activeRoom: room });
       if (!room) {
         set({ isReady: false, countdown: null });
       }
     });
 
-    // Listen to Countdown events
-    socket.on(SOCKET_EVENTS.COUNTDOWN, (data: { seconds: number }) => {
+    p.on(SOCKET_EVENTS.COUNTDOWN, (data: { seconds: number }) => {
       set({ countdown: data.seconds });
     });
 
-    // Refresh rooms list when public lobby updates
-    socket.on('rooms:refresh', (rooms: Room[]) => {
+    p.on('rooms:refresh', (rooms: Room[]) => {
       set({ roomsList: rooms });
     });
   },
 
-  removeRoomListeners: () => {
-    socket.off(SOCKET_EVENTS.ROOM_UPDATE);
-    socket.off(SOCKET_EVENTS.COUNTDOWN);
-    socket.off('rooms:refresh');
-  }
+  removeRoomListeners: (protocol?: GameProtocol) => {
+    const p = protocol || getDefaultProtocol();
+    p.off(SOCKET_EVENTS.ROOM_UPDATE);
+    p.off(SOCKET_EVENTS.COUNTDOWN);
+    p.off('rooms:refresh');
+  },
 }));

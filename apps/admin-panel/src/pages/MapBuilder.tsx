@@ -41,6 +41,10 @@ function generateId(): string {
 
 function defaultMapData(): MapData {
   return {
+    id: '',
+    name: '',
+    width: 3000,
+    height: 1600,
     platforms: [],
     spawnPoints: [],
     jumpPads: [],

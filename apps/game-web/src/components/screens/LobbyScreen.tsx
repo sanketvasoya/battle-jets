@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { useRoomStore } from '../../stores/useRoomStore';
 import { Room, SOCKET_EVENTS } from '@battle-jets/shared';
-import { socket } from '../../utils/socket';
+import { getDefaultProtocol } from '../../utils/socket';
 import { soundManager } from '../../utils/SoundManager';
 import { getAvatarUrl, isUIAssetsLoaded } from '../../utils/UIAssets';
 import { preloadAssets } from '../../utils/AssetLoader';
@@ -67,11 +67,13 @@ export const LobbyScreen: React.FC = () => {
 
   // Navigate to game when match starts
   useEffect(() => {
-    socket.on(SOCKET_EVENTS.MATCH_START, () => {
+    const p = getDefaultProtocol();
+    const onMatchStart = () => {
       soundManager.playMatchStart();
       navigate('/game');
-    });
-    return () => { socket.off(SOCKET_EVENTS.MATCH_START); };
+    };
+    p.on(SOCKET_EVENTS.MATCH_START, onMatchStart);
+    return () => { p.off(SOCKET_EVENTS.MATCH_START, onMatchStart); };
   }, [navigate]);
 
   if (!player) {
@@ -200,14 +202,14 @@ export const LobbyScreen: React.FC = () => {
             {/* Actions */}
             <div className="flex gap-3">
               <button
-                onClick={leaveRoom}
+                onClick={() => leaveRoom()}
                 className="flex-1 py-3 border border-border rounded-xl text-textMuted hover:border-danger hover:text-danger transition-all text-sm font-bold"
               >
                 ← LEAVE
               </button>
               <motion.button
                 id="lobby-ready-btn"
-                onClick={toggleReady}
+                onClick={() => toggleReady()}
                 className={`flex-1 py-3 rounded-xl font-heading font-bold text-sm uppercase tracking-wide transition-all ${
                   isReady
                     ? 'bg-success text-white shadow-[0_0_15px_rgba(34,197,94,0.4)]'
@@ -276,7 +278,7 @@ export const LobbyScreen: React.FC = () => {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs text-textMuted uppercase tracking-widest">Open Rooms</p>
-                <button onClick={fetchRooms} className="text-textMuted hover:text-primary transition-colors">
+                <button onClick={() => fetchRooms()} className="text-textMuted hover:text-primary transition-colors">
                   <RefreshCw className="w-3.5 h-3.5" />
                 </button>
               </div>

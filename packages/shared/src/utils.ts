@@ -80,3 +80,41 @@ export function throttle<T extends (...args: unknown[]) => unknown>(
     }
   };
 }
+
+export function intersectSegmentBox(
+  p0: Vector2,
+  p1: Vector2,
+  boxMin: Vector2,
+  boxMax: Vector2
+): boolean {
+  let tmin = 0;
+  let tmax = 1;
+  const dx = p1.x - p0.x;
+  const dy = p1.y - p0.y;
+
+  if (Math.abs(dx) < 0.000001) {
+    if (p0.x < boxMin.x || p0.x > boxMax.x) return false;
+  } else {
+    const ood = 1 / dx;
+    let t1 = (boxMin.x - p0.x) * ood;
+    let t2 = (boxMax.x - p0.x) * ood;
+    if (t1 > t2) { const temp = t1; t1 = t2; t2 = temp; }
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return false;
+  }
+
+  if (Math.abs(dy) < 0.000001) {
+    if (p0.y < boxMin.y || p0.y > boxMax.y) return false;
+  } else {
+    const ood = 1 / dy;
+    let t1 = (boxMin.y - p0.y) * ood;
+    let t2 = (boxMax.y - p0.y) * ood;
+    if (t1 > t2) { const temp = t1; t1 = t2; t2 = temp; }
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return false;
+  }
+
+  return true;
+}

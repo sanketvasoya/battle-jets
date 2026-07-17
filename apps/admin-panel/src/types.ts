@@ -1,3 +1,11 @@
+export type {
+  Platform,
+  JumpPad,
+  MovingPlatform,
+  Box,
+  MapData,
+} from '@battle-jets/shared';
+
 export interface Weapon {
   id: string;
   name: string;
@@ -33,53 +41,10 @@ export interface GameMap {
   name: string;
   width: number;
   height: number;
-  json: MapData;
+  json: import('@battle-jets/shared').MapData;
   image: string;
   isActive: boolean;
   createdAt: string;
-}
-
-export interface MapData {
-  platforms: Platform[];
-  spawnPoints: { x: number; y: number }[];
-  jumpPads: JumpPad[];
-  movingPlatforms: MovingPlatform[];
-  boxes: Box[];
-}
-
-export interface Platform {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  type: 'solid' | 'one_way';
-}
-
-export interface JumpPad {
-  id: string;
-  x: number;
-  y: number;
-  force: number;
-}
-
-export interface MovingPlatform {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  speed: number;
-  path: { x: number; y: number }[];
-}
-
-export interface Box {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  health: number;
 }
 
 export interface Player {
