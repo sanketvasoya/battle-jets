@@ -10,13 +10,9 @@ import { RoomService } from './room.service';
 import { SOCKET_EVENTS, GAME_CONSTANTS } from '@battle-jets/shared';
 import { Inject, forwardRef } from '@nestjs/common';
 import { GameService } from '../game/game.service';
+import { corsConfig } from '../cors.config';
 
-@WebSocketGateway({
-  cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-    credentials: true,
-  },
-})
+@WebSocketGateway({ cors: corsConfig })
 export class RoomGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;

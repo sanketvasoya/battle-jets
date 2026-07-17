@@ -6,13 +6,9 @@ import {
 import { Socket } from 'socket.io';
 import { LeaderboardService } from './leaderboard.service';
 import { SOCKET_EVENTS } from '@battle-jets/shared';
+import { corsConfig } from '../cors.config';
 
-@WebSocketGateway({
-  cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-    credentials: true,
-  },
-})
+@WebSocketGateway({ cors: corsConfig })
 export class LeaderboardGateway {
   constructor(private readonly leaderboardService: LeaderboardService) {}
 

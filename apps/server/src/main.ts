@@ -5,6 +5,7 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { AppModule } from './app.module';
+import { corsConfig } from './cors.config';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -15,14 +16,9 @@ async function bootstrap() {
   }
   app.useStaticAssets(uploadsDir, { prefix: '/uploads' });
 
-  const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:5174')
-    .split(',')
-    .map((s) => s.trim());
-
   app.enableCors({
-    origin: corsOrigins,
+    ...corsConfig,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    credentials: true,
   });
 
   app.useWebSocketAdapter(new IoAdapter(app));

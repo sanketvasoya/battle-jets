@@ -9,13 +9,9 @@ import { Server, Socket } from 'socket.io';
 import { GameService } from './game.service';
 import { RoomService } from '../room/room.service';
 import { SOCKET_EVENTS } from '@battle-jets/shared';
+import { corsConfig } from '../cors.config';
 
-@WebSocketGateway({
-  cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-    credentials: true,
-  },
-})
+@WebSocketGateway({ cors: corsConfig })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;

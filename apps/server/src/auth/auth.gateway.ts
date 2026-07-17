@@ -8,13 +8,9 @@ import {
 import { Server, Socket } from 'socket.io';
 import { AuthService } from './auth.service';
 import { SOCKET_EVENTS } from '@battle-jets/shared';
+import { corsConfig } from '../cors.config';
 
-@WebSocketGateway({
-  cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-    credentials: true,
-  },
-})
+@WebSocketGateway({ cors: corsConfig })
 export class AuthGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
