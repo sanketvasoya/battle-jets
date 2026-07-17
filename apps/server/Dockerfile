@@ -52,9 +52,9 @@ COPY --from=builder /app/apps/server/dist ./apps/server/dist
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/physics/dist ./packages/physics/dist
 COPY --from=builder /app/packages/game-engine/dist ./packages/game-engine/dist
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/database ./database
+
+RUN cd apps/server && pnpm dlx prisma@6.19.3 generate --schema=../../database/schema.prisma
 
 RUN mkdir -p apps/server/uploads && chown -R nestjs:nodejs /app
 USER nestjs
