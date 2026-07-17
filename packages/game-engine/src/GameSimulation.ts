@@ -112,7 +112,9 @@ export class GameSimulation {
     }));
   }
 
-  public addPlayer(playerId: string, username: string, avatar: string) {
+  public addPlayer(playerId: string, username: string, avatar: string): boolean {
+    if (this.players.size >= GAME_CONSTANTS.MAX_PLAYERS) return false;
+
     const spawn = this.getRandomSpawnPoint();
     const body = this.physicsWorld.addPlayer(playerId, spawn.x, spawn.y);
     this.playerBodies.set(playerId, body);
@@ -145,6 +147,7 @@ export class GameSimulation {
     this.players.set(playerId, playerState);
     this.playerShootCooldowns.set(playerId, 0);
     this.activePowerUps.set(playerId, new Map());
+    return true;
   }
 
   public removePlayer(playerId: string) {
@@ -483,7 +486,7 @@ export class GameSimulation {
         const damage = Math.round(maxDamage * falloff);
 
         this.applyKnockback(playerId, grenade.ownerId, 20, explosionPos);
-        this.damagePlayer(playerId, damage, grenade.ownerId, 'rocket_launcher');
+        this.damagePlayer(playerId, damage, grenade.ownerId, 'grenade_launcher');
       }
     });
 
@@ -775,7 +778,8 @@ export class GameSimulation {
     this.physicsWorld.removePlayer(victimId);
     this.playerBodies.delete(victimId);
 
-    this.playerRespawnTimers.set(victimId, 180);
+    const respawnTicks = Math.ceil((GAME_CONSTANTS.RESPAWN_TIME / 1000) * 60);
+    this.playerRespawnTimers.set(victimId, respawnTicks);
 
     let killerName = 'Environment';
     const killer = this.players.get(killerId);

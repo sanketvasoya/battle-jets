@@ -127,11 +127,17 @@ export class GameService {
       },
     });
 
-    // 4. Run Game Loop (60 ticks/second)
+    // 4. Run Game Loop (60 ticks/second) with drift correction
     const tickIntervalMs = 1000 / 60;
+    let lastTickTime = Date.now();
     const timer = setInterval(() => {
-      this.gameTick(room.code, io);
-    }, tickIntervalMs);
+      const now = Date.now();
+      const elapsed = now - lastTickTime;
+      if (elapsed >= tickIntervalMs * 0.8) {
+        lastTickTime = now;
+        this.gameTick(room.code, io);
+      }
+    }, tickIntervalMs / 2);
 
     this.matchIntervals.set(room.code, timer);
   }
@@ -142,20 +148,22 @@ export class GameService {
 
     const inputsMap = this.clientInputQueues.get(roomCode);
 
-    // Process queued inputs for each player in this tick
     sim.players.forEach((player, playerId) => {
       if (!player.isAlive) return;
 
       const queue = inputsMap?.get(playerId) || [];
       if (queue.length > 0) {
-        // Read and process the latest inputs
-        // In high latency, we process all inputs in order, or just the last few
-        while (queue.length > 0) {
+        const maxInputsPerTick = 3;
+        let processed = 0;
+        while (queue.length > 0 && processed < maxInputsPerTick) {
           const input = queue.shift();
           sim.processInput(playerId, input);
+          processed++;
+        }
+        if (queue.length > 0) {
+          queue.length = 0;
         }
       } else {
-        // Run dummy input to simulate friction/gravity if no input received
         sim.processInput(playerId, {
           tick: sim.tickCount,
           moveX: 0,
@@ -170,14 +178,11 @@ export class GameService {
       }
     });
 
-    // Advance simulation
     sim.tick();
 
-    // Broadcast state
     const state = sim.getSerializableState();
     io.to(roomCode).emit(SOCKET_EVENTS.MATCH_STATE, state);
 
-    // Check if match finished
     if (sim.isFinished) {
       this.endMatch(roomCode, io);
     }

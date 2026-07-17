@@ -22,7 +22,7 @@ COPY packages/game-engine/src/ packages/game-engine/src/
 COPY apps/server/ apps/server/
 ENV PNPM_NODE_LINKER=hoisted
 RUN pnpm install --no-frozen-lockfile
-RUN pnpm exec prisma generate --schema=./database/schema.prisma
+RUN cd apps/server && pnpm exec prisma generate --schema=../../database/schema.prisma
 RUN pnpm --filter @battle-jets/shared build
 RUN pnpm --filter @battle-jets/physics build
 RUN pnpm --filter @battle-jets/game-engine build
@@ -34,9 +34,13 @@ ENV NODE_ENV=production
 RUN addgroup -g 1001 nodejs && adduser -u 1001 -G nodejs -s /bin/sh -D nestjs
 COPY --from=builder /app/apps/server/dist ./dist
 COPY --from=builder /app/apps/server/package.json ./
-COPY --from=builder /app/apps/server/node_modules ./node_modules
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages/shared/dist ./node_modules/@battle-jets/shared/dist
+COPY --from=builder /app/packages/shared/package.json ./node_modules/@battle-jets/shared/package.json
+COPY --from=builder /app/packages/physics/dist ./node_modules/@battle-jets/physics/dist
+COPY --from=builder /app/packages/physics/package.json ./node_modules/@battle-jets/physics/package.json
+COPY --from=builder /app/packages/game-engine/dist ./node_modules/@battle-jets/game-engine/dist
+COPY --from=builder /app/packages/game-engine/package.json ./node_modules/@battle-jets/game-engine/package.json
 COPY --from=builder /app/database ./database
 RUN mkdir -p uploads && chown -R nestjs:nodejs /app
 USER nestjs

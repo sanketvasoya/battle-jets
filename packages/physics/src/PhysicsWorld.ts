@@ -338,8 +338,8 @@ export class PhysicsWorld {
     this.updateMovingPlatforms(dt);
 
     // 2. Step physics simulation
-    // 6 velocity iterations, 2 position iterations are standard Box2D defaults
-    this.world.step(dt, 6, 2);
+    // 8 velocity iterations, 3 position iterations for better stability
+    this.world.step(dt, 8, 3);
   }
 
   private updateMovingPlatforms(dt: number) {
